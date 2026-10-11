@@ -56,6 +56,8 @@ jobs:
       - name: Test grouped ECC center reuse against baseline
         run: make arm64-sha2-neon-su2-center-test
       - name: Compare Y-parity and alternative ECC group-size correctness
-        run: make arm64-parity-test arm64-groups-test
+        run: make arm64-parity-test arm64-groups-test arm64-parity-groups-test
+      - name: Validate Pi benchmark and profile scripts
+        run: bash -n tests/arm64-parity-group-sweep.sh tests/arm64-parity-profile.sh
       - name: Verify canonical secp256k1 field reduction
         run: make arm64-field-test
