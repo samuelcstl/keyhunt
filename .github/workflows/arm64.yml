@@ -76,3 +76,4 @@ jobs:
         run: |
           bash -n tests/arm64-work-elimination-bench.sh
           bash -n tests/arm64-deep-profile.sh
+          bash -n tests/arm64-pmu-ab.sh
