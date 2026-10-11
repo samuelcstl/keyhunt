@@ -424,3 +424,26 @@ arm64-work-elimination-test: arm64-work-elimination
 	KEYHUNT_BIN=keyhunt-arm64-sha2-neon-su2-center-parity-field-point python3 tests/arm64-vectors.py
 	KEYHUNT_BIN=keyhunt-arm64-sha2-neon-su2-center-parity-field-direct1 python3 tests/arm64-vectors.py
 	KEYHUNT_BIN=keyhunt-arm64-sha2-neon-su2-center-parity-field-point-direct1 python3 tests/arm64-vectors.py
+
+# Final output-side experiment: check 4 full RIPEMD160 states against the
+# one target inside NEON before materializing any 20-byte hash. Point, field,
+# SHA and verified match handling remain the same as champion.
+build/arm64/keyhunt-point-direct-neon-target.o: keyhunt.cpp
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -DKEYHUNT_INCREMENTAL_CENTER -DKEYHUNT_Y_PARITY -DKEYHUNT_POINT_ALGEBRA -DKEYHUNT_SINGLE_TARGET_DIRECT -DKEYHUNT_NEON_TARGET_COMPARE -c $< -o $@
+
+keyhunt-arm64-sha2-neon-su2-center-parity-field-point-direct1-neon: $(ARM64_FIELD_POINT_COMMON_OBJS) build/arm64/keyhunt-point-direct-neon-target.o
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread
+
+build/arm64/neon-target-check: tests/arm64-neon-target-check.cpp build/arm64/hash/ripemd160_neon4.o
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^
+
+.PHONY: arm64-neon-target arm64-neon-target-test
+arm64-neon-target: keyhunt-arm64-sha2-neon-su2-center-parity-field-point-direct1-neon
+
+arm64-neon-target-test: arm64-neon-target arm64-work-elimination \
+  build/arm64/neon-target-check
+	build/arm64/neon-target-check
+	KEYHUNT_BIN=keyhunt-arm64-sha2-neon-su2-center-parity-field-point-direct1-neon bash tests/arm64-smoke.sh
+	KEYHUNT_BIN=keyhunt-arm64-sha2-neon-su2-center-parity-field-point-direct1-neon python3 tests/arm64-vectors.py
+	KEYHUNT_BIN=keyhunt-arm64-sha2-neon-su2-center-parity-field-point-direct1-neon bash tests/arm64-solved-fixtures.sh
