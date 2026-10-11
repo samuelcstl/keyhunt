@@ -43,6 +43,11 @@ void ripemd160(unsigned char *input,int length,unsigned char *digest);
 void ripemd160_32(unsigned char *input, unsigned char *digest);
 void ripemd160sse_32(uint8_t *i0, uint8_t *i1, uint8_t *i2, uint8_t *i3,
   uint8_t *d0, uint8_t *d1, uint8_t *d2, uint8_t *d3);
+// Exact one-target compressed P2PKH fast path on little-endian AArch64.
+ // Returns one bit per lane; does not materialize four RIPEMD160 digests.
+uint8_t ripemd160sse_32_target(const uint8_t *i0,const uint8_t *i1,
+                              const uint8_t *i2,const uint8_t *i3,
+                              const uint8_t *target);
 void ripemd160sse_test();
 std::string ripemd160_hex(unsigned char *digest);
 
