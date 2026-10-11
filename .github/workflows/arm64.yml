@@ -77,3 +77,7 @@ jobs:
           bash -n tests/arm64-work-elimination-bench.sh
           bash -n tests/arm64-deep-profile.sh
           bash -n tests/arm64-pmu-ab.sh
+      - name: Verify four-lane NEON target mask and one-/multi-target correctness
+        run: make arm64-neon-target-test
+      - name: Validate repeated target-mask A/B benchmark script
+        run: bash -n tests/arm64-neon-target-bench.sh
