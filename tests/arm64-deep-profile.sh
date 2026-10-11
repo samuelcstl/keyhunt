@@ -20,13 +20,15 @@ echo "Perf files: $DIR"
 
 # Linux PMU events vary across kernel builds. When the hardware events are
 # inaccessible, preserve diagnostic availability via software clock samples.
-if perf stat -x, -e cycles:u,instructions:u,branches:u,branch-misses:u \
+pmu_rc=0
+perf stat -x, -e cycles:u,instructions:u,branches:u,branch-misses:u \
    -o "$DIR/pmu.txt" -- \
    timeout --signal=TERM --kill-after=5s "${DURATION}s" \
-   nice -n 15 "${args[@]}" > "$DIR/pmu-run.log" 2>&1; then
-    echo "Hardware PMU counter sample complete"
+   nice -n 15 "${args[@]}" > "$DIR/pmu-run.log" 2>&1 || pmu_rc=$?
+if [[ "$pmu_rc" -eq 0 || "$pmu_rc" -eq 124 || "$pmu_rc" -eq 143 ]]; then
+  echo "Hardware PMU sample complete (bounded benchmark exit $pmu_rc)"
 else
-    echo "Hardware counters may be inaccessible; see $DIR/pmu.txt" >&2
+  echo "Hardware counters may be inaccessible; see $DIR/pmu.txt" >&2
 fi
 
 # Hardware-cycle samples when available, software CPU-clock otherwise.
