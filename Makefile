@@ -152,3 +152,33 @@ arm64-sha2-test: arm64-sha2
 	KEYHUNT_BIN=keyhunt-arm64-sha2 bash tests/arm64-smoke.sh
 	KEYHUNT_BIN=keyhunt-arm64-sha2 python3 tests/arm64-vectors.py
 	KEYHUNT_BIN=keyhunt-arm64-sha2 bash tests/arm64-solved-fixtures.sh
+
+# SHA256H/H2 stays identical to make arm64-sha2; only RIPEMD160 changes.
+# Compile a variant of the SHA2 adapter without its scalar RIPEMD160 symbol
+# and link the four-way NEON implementation instead.
+ARM64_SHA2_NEON_OBJS := $(filter-out build/arm64/hash/hash4_scalar.o,$(ARM64_CPP_OBJS)) \
+  $(ARM64_C_OBJS) build/arm64/hash/hash4_arm_sha2_neon.o \
+  build/arm64/hash/ripemd160_neon4.o
+
+.PHONY: arm64-sha2-neon arm64-sha2-neon-test
+arm64-sha2-neon: keyhunt-arm64-sha2-neon
+
+keyhunt-arm64-sha2-neon: $(ARM64_SHA2_NEON_OBJS)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread
+
+build/arm64/hash/hash4_arm_sha2_neon.o: hash/hash4_arm_sha2.cpp
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_SHA2_CXXFLAGS) -DKEYHUNT_NEON_RIPEMD160 -c $< -o $@
+
+build/arm64/hash/ripemd160_neon4.o: hash/ripemd160_neon4.cpp
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -c $< -o $@
+
+build/arm64/ripemd160-neon-selftest: tests/arm64-ripemd160-neon.cpp build/arm64/hash/ripemd160_neon4.o
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lcrypto
+
+arm64-sha2-neon-test: arm64-sha2-neon build/arm64/ripemd160-neon-selftest
+	./build/arm64/ripemd160-neon-selftest
+	KEYHUNT_BIN=keyhunt-arm64-sha2-neon bash tests/arm64-smoke.sh
+	KEYHUNT_BIN=keyhunt-arm64-sha2-neon python3 tests/arm64-vectors.py
+	KEYHUNT_BIN=keyhunt-arm64-sha2-neon bash tests/arm64-solved-fixtures.sh
