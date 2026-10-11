@@ -58,14 +58,14 @@ def btc_address(k):
     digest = hashlib.new(
         "ripemd160", hashlib.sha256(compressed).digest()
     ).digest()
-    body = b"\x5cx00" + digest
+    body = b"\x00" + digest
     check = hashlib.sha256(hashlib.sha256(body).digest()).digest()[:4]
     value = int.from_bytes(body + check, "big")
     encoded = ""
     while value:
         value, rem = divmod(value, 58)
         encoded = ALPHABET[rem] + encoded
-    leading = len(body + check) - len((body + check).lstrip(b"\x5cx00"))
+    leading = len(body + check) - len((body + check).lstrip(b"\x00"))
     return "1" * leading + encoded, y & 1
 
 
