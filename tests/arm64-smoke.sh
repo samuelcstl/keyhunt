@@ -3,8 +3,9 @@
 # Puzzle #20 private key d2c55 must be recovered from its legacy address.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-if [[ ! -x ./keyhunt-arm64 ]]; then
-  echo 'Build first: make arm64' >&2
+bin="${KEYHUNT_BIN:-keyhunt-arm64}"
+if [[ ! -x "./$bin" ]]; then
+  echo "Build first: missing $bin" >&2
   exit 1
 fi
 run_dir="$(mktemp -d)"
@@ -12,7 +13,7 @@ trap 'rm -rf "$run_dir"' EXIT
 printf '%s\n' '1HsMJxNiV7TLxmoF6uJNkydxPFDog4NQum' > "$run_dir/target.txt"
 cd "$run_dir"
 timeout --signal=TERM --kill-after=5s 90s \
-  "$OLDPWD/keyhunt-arm64" -m address -f "$run_dir/target.txt" \
+  "$OLDPWD/$bin" -m address -f "$run_dir/target.txt" \
   -r 80000:100000 -n 0x10000 -l compress -t 1 -s 0 \
   > run.log 2>&1 || { cat run.log; exit 1; }
 cat run.log
