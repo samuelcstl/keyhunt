@@ -110,6 +110,7 @@ build/arm64/xxhash/%.o: xxhash/%.c
 
 arm64-test: arm64
 	bash tests/arm64-smoke.sh
+	python3 tests/arm64-vectors.py
 
 arm64-clean:
 	rm -rf build/arm64 keyhunt-arm64
