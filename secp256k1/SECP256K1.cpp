@@ -809,3 +809,23 @@ void Secp256K1::GetHash160_fromXYParity(int type,
   sha256sse_1B(b0,b1,b2,b3,sh0,sh1,sh2,sh3);
   ripemd160sse_32(sh0,sh1,sh2,sh3,h0,h1,h2,h3);
 }
+
+// Target comparison in the four-lane NEON RIPEMD160 state. This hashes
+// exactly the same four parity-correct compressed public keys as above.
+uint8_t Secp256K1::GetHash160_fromXYParityTarget(int type,
+    Point *p0,Point *p1,Point *p2,Point *p3,
+    const uint8_t *target) {
+  if (type != P2PKH) {
+    fprintf(stderr,"[E] target-aware parity mode only supports P2PKH\n");
+    exit(EXIT_FAILURE);
+  }
+  uint32_t b0[16], b1[16], b2[16], b3[16];
+  KEYBUFFPREFIX(b0,&p0->x,p0->y.IsOdd() ? 0x03 : 0x02);
+  KEYBUFFPREFIX(b1,&p1->x,p1->y.IsOdd() ? 0x03 : 0x02);
+  KEYBUFFPREFIX(b2,&p2->x,p2->y.IsOdd() ? 0x03 : 0x02);
+  KEYBUFFPREFIX(b3,&p3->x,p3->y.IsOdd() ? 0x03 : 0x02);
+  alignas(16) uint8_t sh0[32],sh1[32],sh2[32],sh3[32];
+  sha256sse_1B(b0,b1,b2,b3,sh0,sh1,sh2,sh3);
+  return ripemd160sse_32_target(sh0,sh1,sh2,sh3,target);
+}
+
