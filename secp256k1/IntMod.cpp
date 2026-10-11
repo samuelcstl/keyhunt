@@ -852,9 +852,9 @@ void Int::MontgomeryMult(Int *a, Int *b) {
 
 // Optional ARM64 field experiment. Baseline implementation is preserved
 // for independent A/B binaries and non-AArch64 builds.
-#if defined(KEYHUNT_ARM64_FIELD_MUL)
+#if defined(KEYHUNT_ARM64_FIELD_MUL) || defined(KEYHUNT_ARM64_FIELD_COMBA) || defined(KEYHUNT_ARM64_FIELD_SQUARE)
 #if !defined(__aarch64__)
-#error "KEYHUNT_ARM64_FIELD_MUL requires AArch64"
+#error "ARM64 field kernel requires AArch64"
 #endif
 extern void field_k1_arm64_mul(uint64_t out[5], const uint64_t a[5],
                                const uint64_t b[5]);
