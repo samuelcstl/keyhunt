@@ -6,7 +6,7 @@ set -euo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ROOT="$(cd "$REPO/.." && pwd)"
 RUN_ROOT="${KEYHUNT_RUN_DIR:-$ROOT/runs/arm64-neon-target-ab}"
-DIR="$RUN_ROOT/$(date -u +%Y%m%dT%H%M%SZ)-$"
+DIR="$RUN_ROOT/$(date -u +%Y%m%dT%H%M%SZ)-${BASHPID}"
 TARGET="${KEYHUNT_TARGET:-$ROOT/runs/bench71/target.txt}"
 DURATION="${KEYHUNT_BENCH_SECONDS:-120}"
 REPEATS="${KEYHUNT_BENCH_REPEATS:-1}"
@@ -161,7 +161,8 @@ for threads in sorted({k[0] for k in data}):
         print(f"threads={threads}: NEON vs control={(b/a-1)*100:+.2f}%")
 print("PMU per-candidate counts are approximate: partial reporting window/startup.")
 print("CPU cycles per candidate and Joules per candidate are different metrics.")
-PYif command -v vcgencmd >/dev/null 2>&1; then
+PY
+if command -v vcgencmd >/dev/null 2>&1; then
     vcgencmd measure_temp
     vcgencmd get_throttled
 fi
