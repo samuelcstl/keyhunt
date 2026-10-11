@@ -419,7 +419,7 @@ arm64-work-elimination: keyhunt-arm64-sha2-neon-su2-center-parity-field-mul-sqr 
   keyhunt-arm64-sha2-neon-su2-center-parity-field-direct1 \
   keyhunt-arm64-sha2-neon-su2-center-parity-field-point-direct1
 
-arm64-work-elimination-test: arm64-work-elimination
+arm64-work-elimination-test: arm64-work-elimination arm64-neon-target
 	python3 tests/arm64-work-elimination-coverage.py
 	KEYHUNT_BIN=keyhunt-arm64-sha2-neon-su2-center-parity-field-point python3 tests/arm64-vectors.py
 	KEYHUNT_BIN=keyhunt-arm64-sha2-neon-su2-center-parity-field-direct1 python3 tests/arm64-vectors.py
