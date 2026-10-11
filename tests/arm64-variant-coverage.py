@@ -49,6 +49,18 @@ def main():
         raise AssertionError(f"Missing expected solved keys: {sorted(missing)}")
     print(f"PASS: {len(reference)} identical solved private keys across all 4 variants")
     print("PASS: all variants crossed 512/1024/2048-point group boundaries")
+    # Regression: a 2048-point loop with -n 1024 silently searched
+    # overlapping work across successive assigned ranges.
+    with tempfile.TemporaryDirectory(prefix="keyhunt-bad-n-") as tmp:
+        cmd=[str(root/names[3]), "-m","address",
+             "-f",str(root/"tests"/"1to32.txt"), "-r","1:40000",
+             "-n","0x400", "-l","compress", "-t","1", "-q","-s","0"]
+        result=subprocess.run(cmd,cwd=tmp,text=True,stdout=subprocess.PIPE,
+                              stderr=subprocess.STDOUT,timeout=15,check=False)
+        if result.returncode == 0 or "CPU_GRP_SIZE=2048" not in result.stdout:
+            raise AssertionError("2048-point binary failed to reject -n 1024"
+                                 + result.stdout[-1000:])
+    print("PASS: rejects search chunks smaller than ECC group size")
 
 if __name__=="__main__":
     main()
