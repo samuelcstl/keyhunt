@@ -2863,7 +2863,6 @@ secp->GetHash160_fromX(P2PKH,0x02,&pts[(j*4)].x,&pts[(j*4)+1].x,&pts[(j*4)+2].x,
 												r = bloom_check(&bloom,publickeyhashrmd160_endomorphism[l][k],MAXLENGTHADDRESS);
 												if (r) {
 													r = searchbinary(addressTable,publickeyhashrmd160_endomorphism[l][k],N);
-													if (r) {
 													if(r) {
 														keyfound.SetInt32(k);
 														keyfound.Mult(&stride);
