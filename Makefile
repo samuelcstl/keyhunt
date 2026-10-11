@@ -226,3 +226,44 @@ arm64-sha2-neon-su2-center-test: arm64-sha2-neon-su2 arm64-sha2-neon-su2-center
 	KEYHUNT_BIN=keyhunt-arm64-sha2-neon-su2-center python3 tests/arm64-vectors.py
 	KEYHUNT_BIN=keyhunt-arm64-sha2-neon-su2-center bash tests/arm64-solved-fixtures.sh
 	python3 tests/arm64-center-compare.py
+
+# Isolated experiments using identical SU2 + NEON implementations.
+# -parity hashes each candidate's real 02/03 prefix exactly once.
+# -512 / -2048 change only the ECC group size (center reuse retained).
+.PHONY: arm64-parity arm64-parity-test arm64-groups arm64-groups-test
+ARM64_PARITY_OBJS := $(filter-out build/arm64/keyhunt-center.o,$(ARM64_SU2_CENTER_OBJS)) \
+  build/arm64/keyhunt-center-parity.o
+
+build/arm64/keyhunt-center-parity.o: keyhunt.cpp
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -DKEYHUNT_INCREMENTAL_CENTER -DKEYHUNT_Y_PARITY -c $< -o $@
+
+keyhunt-arm64-sha2-neon-su2-center-parity: $(ARM64_PARITY_OBJS)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread
+
+arm64-parity: keyhunt-arm64-sha2-neon-su2-center-parity
+
+arm64-parity-test: arm64-parity
+	KEYHUNT_BIN=keyhunt-arm64-sha2-neon-su2-center-parity bash tests/arm64-smoke.sh
+	KEYHUNT_BIN=keyhunt-arm64-sha2-neon-su2-center-parity python3 tests/arm64-vectors.py
+	KEYHUNT_BIN=keyhunt-arm64-sha2-neon-su2-center-parity bash tests/arm64-solved-fixtures.sh
+	python3 tests/arm64-variant-coverage.py
+
+build/arm64/keyhunt-center-512.o: keyhunt.cpp
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -DKEYHUNT_INCREMENTAL_CENTER -DCPU_GRP_SIZE=512 -c $< -o $@
+
+build/arm64/keyhunt-center-2048.o: keyhunt.cpp
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -DKEYHUNT_INCREMENTAL_CENTER -DCPU_GRP_SIZE=2048 -c $< -o $@
+
+keyhunt-arm64-sha2-neon-su2-center-512: $(filter-out build/arm64/keyhunt-center.o,$(ARM64_SU2_CENTER_OBJS)) build/arm64/keyhunt-center-512.o
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread
+
+keyhunt-arm64-sha2-neon-su2-center-2048: $(filter-out build/arm64/keyhunt-center.o,$(ARM64_SU2_CENTER_OBJS)) build/arm64/keyhunt-center-2048.o
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread
+
+arm64-groups: keyhunt-arm64-sha2-neon-su2-center-512 keyhunt-arm64-sha2-neon-su2-center-2048
+
+arm64-groups-test: arm64-groups
+	python3 tests/arm64-variant-coverage.py
