@@ -57,6 +57,10 @@ def main():
                 raise AssertionError(f"{name}: one-target puzzle missed\n"+p.stdout[-2000:])
             if "[I] Direct single-target HASH160 path active" not in p.stdout:
                 raise AssertionError(f"{name}: N==1 optimization not activated")
+            if name.endswith("-neon") and (
+                "[I] Four-lane NEON target comparison active" not in p.stdout
+            ):
+                raise AssertionError(f"{name}: NEON target comparison not activated")
     print("PASS: N==1 path actually selected and solved puzzle #20")
 
 if __name__=="__main__":
