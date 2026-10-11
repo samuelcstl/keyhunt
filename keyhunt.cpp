@@ -2187,7 +2187,11 @@ int main(int argc, char **argv)	{
 				}
 				else	{
 					if(FLAGSEARCH == SEARCH_COMPRESS)	{
-						total.Mult(2);
+#ifdef KEYHUNT_Y_PARITY
+						if (!(FLAGCRYPTO == CRYPTO_BTC && !FLAGENDOMORPHISM &&
+						      (FLAGMODE == MODE_ADDRESS || FLAGMODE == MODE_RMD160)))
+#endif
+							total.Mult(2);
 					}
 				}
 				
@@ -2542,7 +2546,15 @@ void *thread_process(void *vargp)	{
 	
 	char publickeyhashrmd160_endomorphism[12][4][20];
 	
-	bool calculate_y = FLAGSEARCH == SEARCH_UNCOMPRESS || FLAGSEARCH == SEARCH_BOTH || FLAGCRYPTO  == CRYPTO_ETH;
+	#ifdef KEYHUNT_Y_PARITY
+	const bool parity_search = FLAGSEARCH == SEARCH_COMPRESS &&
+		FLAGCRYPTO == CRYPTO_BTC && !FLAGENDOMORPHISM &&
+		(FLAGMODE == MODE_ADDRESS || FLAGMODE == MODE_RMD160);
+#else
+	const bool parity_search = false;
+#endif
+	bool calculate_y = FLAGSEARCH == SEARCH_UNCOMPRESS || FLAGSEARCH == SEARCH_BOTH ||
+		FLAGCRYPTO == CRYPTO_ETH || parity_search;
 	Int key_mpz,keyfound,temp_stride;
 	tt = (struct tothread *)vargp;
 	thread_number = tt->nt;
@@ -2745,8 +2757,21 @@ void *thread_process(void *vargp)	{
 										secp->GetHash160_fromX(P2PKH,0x03,&endomorphism_beta2[(j*4)].x,&endomorphism_beta2[(j*4)+1].x,&endomorphism_beta2[(j*4)+2].x,&endomorphism_beta2[(j*4)+3].x,(uint8_t*)publickeyhashrmd160_endomorphism[5][0],(uint8_t*)publickeyhashrmd160_endomorphism[5][1],(uint8_t*)publickeyhashrmd160_endomorphism[5][2],(uint8_t*)publickeyhashrmd160_endomorphism[5][3]);
 									}
 									else	{
-										secp->GetHash160_fromX(P2PKH,0x02,&pts[(j*4)].x,&pts[(j*4)+1].x,&pts[(j*4)+2].x,&pts[(j*4)+3].x,(uint8_t*)publickeyhashrmd160_endomorphism[0][0],(uint8_t*)publickeyhashrmd160_endomorphism[0][1],(uint8_t*)publickeyhashrmd160_endomorphism[0][2],(uint8_t*)publickeyhashrmd160_endomorphism[0][3]);
+#ifdef KEYHUNT_Y_PARITY
+										if (parity_search) {
+											secp->GetHash160_fromXYParity(P2PKH,
+												&pts[j*4],&pts[j*4+1],&pts[j*4+2],&pts[j*4+3],
+												(uint8_t*)publickeyhashrmd160_endomorphism[0][0],
+												(uint8_t*)publickeyhashrmd160_endomorphism[0][1],
+												(uint8_t*)publickeyhashrmd160_endomorphism[0][2],
+												(uint8_t*)publickeyhashrmd160_endomorphism[0][3]);
+										} else {
+#endif
+secp->GetHash160_fromX(P2PKH,0x02,&pts[(j*4)].x,&pts[(j*4)+1].x,&pts[(j*4)+2].x,&pts[(j*4)+3].x,(uint8_t*)publickeyhashrmd160_endomorphism[0][0],(uint8_t*)publickeyhashrmd160_endomorphism[0][1],(uint8_t*)publickeyhashrmd160_endomorphism[0][2],(uint8_t*)publickeyhashrmd160_endomorphism[0][3]);
 										secp->GetHash160_fromX(P2PKH,0x03,&pts[(j*4)].x,&pts[(j*4)+1].x,&pts[(j*4)+2].x,&pts[(j*4)+3].x,(uint8_t*)publickeyhashrmd160_endomorphism[1][0],(uint8_t*)publickeyhashrmd160_endomorphism[1][1],(uint8_t*)publickeyhashrmd160_endomorphism[1][2],(uint8_t*)publickeyhashrmd160_endomorphism[1][3]);
+#ifdef KEYHUNT_Y_PARITY
+										}
+#endif
 									}
 									
 								}
@@ -2872,7 +2897,7 @@ void *thread_process(void *vargp)	{
 											}
 										}
 										else	{
-											for(l = 0;l < 2; l++)	{
+											for(l = 0; l < (parity_search ? 1 : 2); l++)	{
 												r = bloom_check(&bloom,publickeyhashrmd160_endomorphism[l][k],MAXLENGTHADDRESS);
 												if(r) {
 													r = searchbinary(addressTable,publickeyhashrmd160_endomorphism[l][k],N);
@@ -2884,6 +2909,12 @@ void *thread_process(void *vargp)	{
 														publickey = secp->ComputePublicKey(&keyfound);
 														secp->GetHash160(P2PKH,true,publickey,(uint8_t*)publickeyhashrmd160);
 														if(memcmp(publickeyhashrmd160_endomorphism[l][k],publickeyhashrmd160,20) != 0)	{
+															#ifdef KEYHUNT_Y_PARITY
+															if (parity_search) {
+																fprintf(stderr,"[E] Parity-aware key/hash mismatch; refusing incorrect result\\n");
+																exit(EXIT_FAILURE);
+															}
+#endif
 															keyfound.Neg();
 															keyfound.Add(&secp->order);
 														}
