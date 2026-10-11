@@ -1,6 +1,6 @@
 # keyhunt
 
-> **Pi 5 / Puzzle #71 ARM64 research fork:** start with [AGENTS.md](AGENTS.md) for a new agent thread, the [complete agent handoff](docs/AGENT_HANDOFF_PUZZLE71_PI5.md) for validated binaries and benchmark state, and the [upstream modes / search-space audit](research/2026-10-11-keyhunt-modes-and-search-space.md) before changing range, random scheduling, stride or lookup mode. These experiments remain in PR #1; this general README retains upstream documentation, including historical options.
+> **Pi 5 / Puzzle #71 ARM64 research fork:** start with [AGENTS.md](AGENTS.md) for a new agent thread, the [complete agent handoff](docs/AGENT_HANDOFF_PUZZLE71_PI5.md), the [production search policy](docs/PRODUCTION_SEARCH_POLICY.md) for validated binaries and benchmark state, and the [upstream modes / search-space audit](research/2026-10-11-keyhunt-modes-and-search-space.md) before changing range, random scheduling, stride or lookup mode. These experiments remain in PR #1; this general README retains upstream documentation, including historical options.
 
 Tool for hunt privatekeys for crypto currencies that use secp256k1 elliptic curve
 
