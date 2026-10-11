@@ -44,10 +44,10 @@ for threads in 1 4; do
         echo "Perf stat failed with $rc; inspect ${filename}.perf" >&2
         exit 1
       fi
-      python3 - "$bin" "$threads" "$rep" "${filename}.perf" "${filename}.log" "$DIR/samples.tsv" <<'PY'
+      python3 - "$bin" "$threads" "$rep" "${filename}.perf" "${filename}.log" "$DIR/samples.tsv" "$DURATION" <<'PY'
 import re,sys
 from pathlib import Path
-bin,threads,rep,stat,log,output=sys.argv[1:]
+bin,threads,rep,stat,log,output,requested_seconds=sys.argv[1:]
 pmu={}
 wall_seconds=None
 for line in Path(stat).read_text().splitlines():
@@ -74,7 +74,10 @@ keys,elapsed,rate=map(int,matches[-1])
 # inflates absolute cycles/key by approximately perf_wall / snapshot_time.
 # Estimate full-window candidate count using steady-state reported rate.
 if wall_seconds is None or wall_seconds <= 0:
-    raise SystemExit(f"perf elapsed time missing in {stat}; cannot align counters")
+    # Older perf versions omit the elapsed record when -x/-o is used.
+    # The requested timeout is a closer approximation than a stale -s 5
+    # snapshot; this fallback remains explicitly estimated.
+    wall_seconds=float(requested_seconds)
 estimated_keys=rate*wall_seconds
 with open(output,"a") as f:
     vals=[bin,threads,rep,keys,rate,round(wall_seconds,6),round(estimated_keys),
