@@ -2572,6 +2572,11 @@ void *thread_process(void *vargp)	{
 	tt = (struct tothread *)vargp;
 	thread_number = tt->nt;
 	free(tt);
+#ifdef KEYHUNT_SINGLE_TARGET_DIRECT
+	// One-time marker that this process selected N==1 exact matching.
+	if (thread_number == 0 && parity_search && N == 1)
+		fprintf(stderr, "[I] Direct single-target HASH160 path active\n");
+#endif
 	grp->Set(dx);
 			
 	do {
