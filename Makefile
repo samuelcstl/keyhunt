@@ -114,3 +114,19 @@ arm64-test: arm64
 
 arm64-clean:
 	rm -rf build/arm64 keyhunt-arm64
+
+# OpenSSL-backed four-way hash experiment. Shares fixed-width ECC objects
+# with arm64; changing only the four-lane hash implementation.
+ARM64_OPENSSL_OBJS := $(filter-out build/arm64/hash/hash4_scalar.o,$(ARM64_CPP_OBJS)) \
+  $(ARM64_C_OBJS) build/arm64/hash/hash4_openssl.o
+
+.PHONY: arm64-openssl arm64-openssl-test
+arm64-openssl: keyhunt-arm64-openssl
+
+keyhunt-arm64-openssl: $(ARM64_OPENSSL_OBJS)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread -lcrypto
+
+arm64-openssl-test: arm64-openssl
+	KEYHUNT_BIN=keyhunt-arm64-openssl bash tests/arm64-smoke.sh
+	KEYHUNT_BIN=keyhunt-arm64-openssl python3 tests/arm64-vectors.py
+	KEYHUNT_BIN=keyhunt-arm64-openssl bash tests/arm64-solved-fixtures.sh
