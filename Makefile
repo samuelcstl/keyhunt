@@ -444,6 +444,7 @@ arm64-neon-target: keyhunt-arm64-sha2-neon-su2-center-parity-field-point-direct1
 arm64-neon-target-test: arm64-neon-target arm64-work-elimination \
   build/arm64/neon-target-check
 	build/arm64/neon-target-check
+	python3 tests/arm64-work-elimination-coverage.py
 	KEYHUNT_BIN=keyhunt-arm64-sha2-neon-su2-center-parity-field-point-direct1-neon bash tests/arm64-smoke.sh
 	KEYHUNT_BIN=keyhunt-arm64-sha2-neon-su2-center-parity-field-point-direct1-neon python3 tests/arm64-vectors.py
 	KEYHUNT_BIN=keyhunt-arm64-sha2-neon-su2-center-parity-field-point-direct1-neon bash tests/arm64-solved-fixtures.sh
