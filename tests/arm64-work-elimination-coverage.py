@@ -15,6 +15,7 @@ BINARIES=(
     "keyhunt-arm64-sha2-neon-su2-center-parity-field-point",
     "keyhunt-arm64-sha2-neon-su2-center-parity-field-direct1",
     "keyhunt-arm64-sha2-neon-su2-center-parity-field-point-direct1",
+    "keyhunt-arm64-sha2-neon-su2-center-parity-field-point-direct1-neon",
 )
 
 def scan(binary, work):
