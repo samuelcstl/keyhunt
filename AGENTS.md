@@ -6,8 +6,9 @@ This repository is an experimental fork of AlbertoBSD/keyhunt, actively worked o
 
 1. [Complete agent handoff](docs/AGENT_HANDOFF_PUZZLE71_PI5.md). This is the authoritative record of hardware, tested versions, benchmarks, verification and open questions.
 2. [Upstream modes and Puzzle #71 search-space audit](research/2026-10-11-keyhunt-modes-and-search-space.md). Read *before* recommending `-e`, `-I`, `-m bsgs`, `-R`, `-n`, or changing the private-key range.
-3. [Pi5 code-level waste audit](research/2026-10-11-pi5-architectural-audit.md).
-4. [GPU source-level comparison](research/2026-10-11-gpu-source-audit.md).
+3. [Production search policy and restartable scheduler design](docs/PRODUCTION_SEARCH_POLICY.md). Read before implementing a daemon, random permutation, checkpoint or work allocator.
+4. [Pi5 code-level waste audit](research/2026-10-11-pi5-architectural-audit.md).
+5. [GPU source-level comparison](research/2026-10-11-gpu-source-audit.md).
 
 ## Known-good computation and limits
 
