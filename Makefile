@@ -279,3 +279,34 @@ build/arm64/field-k1-check: tests/arm64-field-k1-check.cpp \
 
 arm64-field-test: build/arm64/field-k1-check
 	python3 tests/arm64-field-k1-check.py
+
+# Controlled ECC group-size sweep on the validated exact-Y-parity path.
+# Identical SHA256SU0/SU1, four-lane NEON RIPEMD160 and center reuse; only
+# CPU_GRP_SIZE changes. Keep standalone object files for clean A/B tests.
+ARM64_PARITY_GROUP_OBJS := $(filter-out build/arm64/keyhunt-center-parity.o,$(ARM64_PARITY_OBJS))
+
+build/arm64/keyhunt-center-parity-512.o: keyhunt.cpp
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -DKEYHUNT_INCREMENTAL_CENTER -DKEYHUNT_Y_PARITY -DCPU_GRP_SIZE=512 -c $< -o $@
+
+build/arm64/keyhunt-center-parity-2048.o: keyhunt.cpp
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -DKEYHUNT_INCREMENTAL_CENTER -DKEYHUNT_Y_PARITY -DCPU_GRP_SIZE=2048 -c $< -o $@
+
+keyhunt-arm64-sha2-neon-su2-center-parity-512: $(ARM64_PARITY_GROUP_OBJS) build/arm64/keyhunt-center-parity-512.o
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread
+
+keyhunt-arm64-sha2-neon-su2-center-parity-2048: $(ARM64_PARITY_GROUP_OBJS) build/arm64/keyhunt-center-parity-2048.o
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread
+
+.PHONY: arm64-parity-groups arm64-parity-groups-test
+arm64-parity-groups: arm64-parity \
+  keyhunt-arm64-sha2-neon-su2-center-parity-512 \
+  keyhunt-arm64-sha2-neon-su2-center-parity-2048
+
+arm64-parity-groups-test: arm64-parity-groups arm64-groups arm64-sha2-neon-su2-center
+	KEYHUNT_BIN=keyhunt-arm64-sha2-neon-su2-center-parity-512 bash tests/arm64-smoke.sh
+	KEYHUNT_BIN=keyhunt-arm64-sha2-neon-su2-center-parity-2048 bash tests/arm64-smoke.sh
+	KEYHUNT_BIN=keyhunt-arm64-sha2-neon-su2-center-parity-512 python3 tests/arm64-vectors.py
+	KEYHUNT_BIN=keyhunt-arm64-sha2-neon-su2-center-parity-2048 python3 tests/arm64-vectors.py
+	python3 tests/arm64-variant-coverage.py
