@@ -131,3 +131,24 @@ arm64-openssl-test: arm64-openssl
 	KEYHUNT_BIN=keyhunt-arm64-openssl bash tests/arm64-smoke.sh
 	KEYHUNT_BIN=keyhunt-arm64-openssl python3 tests/arm64-vectors.py
 	KEYHUNT_BIN=keyhunt-arm64-openssl bash tests/arm64-solved-fixtures.sh
+
+# Explicit ARMv8 SHA2 instructions, without libcrypto or SSE.
+# Only the SHA2 adapter is compiled with the SHA2 feature requirement.
+ARM64_SHA2_CXXFLAGS := $(ARM64_CXXFLAGS) -march=armv8.2-a+sha2
+ARM64_SHA2_OBJS := $(filter-out build/arm64/hash/hash4_scalar.o,$(ARM64_CPP_OBJS)) \
+  $(ARM64_C_OBJS) build/arm64/hash/hash4_arm_sha2.o
+
+.PHONY: arm64-sha2 arm64-sha2-test
+arm64-sha2: keyhunt-arm64-sha2
+
+keyhunt-arm64-sha2: $(ARM64_SHA2_OBJS)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread
+
+build/arm64/hash/hash4_arm_sha2.o: hash/hash4_arm_sha2.cpp
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_SHA2_CXXFLAGS) -c $< -o $@
+
+arm64-sha2-test: arm64-sha2
+	KEYHUNT_BIN=keyhunt-arm64-sha2 bash tests/arm64-smoke.sh
+	KEYHUNT_BIN=keyhunt-arm64-sha2 python3 tests/arm64-vectors.py
+	KEYHUNT_BIN=keyhunt-arm64-sha2 bash tests/arm64-solved-fixtures.sh
