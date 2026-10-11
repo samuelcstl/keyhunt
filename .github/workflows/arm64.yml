@@ -23,7 +23,7 @@ jobs:
         run: make arm64-sha2
       - name: Verify SHA2 engine uses hardware instructions
         run: |
-          objdump -d keyhunt-arm64-sha2 | grep -Eq '\\bsha256h2?\\b'
+          objdump -d keyhunt-arm64-sha2 | grep -Eq 'sha256h2?'
       - name: Verify SHA2 engine recovered all known keys
         run: |
           if grep -qE '(^| )sha2( |$)' /proc/cpuinfo; then
