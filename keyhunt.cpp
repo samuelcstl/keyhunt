@@ -124,7 +124,12 @@ int minikey_n_limit;
 	
 const char *version = "0.2.230519 Satoshi Quest";
 
+// Compile-time tuning knob. All group sizes must be even multiples of four.
+#ifndef CPU_GRP_SIZE
 #define CPU_GRP_SIZE 1024
+#endif
+static_assert(CPU_GRP_SIZE >= 8 && CPU_GRP_SIZE % 4 == 0,
+              "CPU_GRP_SIZE must be >= 8 and divisible by four");
 
 std::vector<Point> Gn;
 Point _2Gn;
