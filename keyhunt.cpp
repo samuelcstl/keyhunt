@@ -2567,6 +2567,9 @@ void *thread_process(void *vargp)	{
 			}
 		}
 		if(continue_flag)	{
+#ifdef KEYHUNT_INCREMENTAL_CENTER
+			bool center_ready = false; // Fresh start for every assigned sequential/random chunk.
+#endif
 			count = 0;
 			if(FLAGMATRIX)	{
 					hextemp = key_mpz.GetBase16();
@@ -2584,11 +2587,20 @@ void *thread_process(void *vargp)	{
 				}
 			}
 			do {
+#ifdef KEYHUNT_INCREMENTAL_CENTER
+				// At the end of the preceding batch, startP was advanced by
+				// CPU_GRP_SIZE*G. Recomputing its scalar multiple here is redundant.
+				if (!center_ready) {
+#endif
 				temp_stride.SetInt32(CPU_GRP_SIZE / 2);
 				temp_stride.Mult(&stride);
 				key_mpz.Add(&temp_stride);
 	 			startP = secp->ComputePublicKey(&key_mpz);
 				key_mpz.Sub(&temp_stride);
+#ifdef KEYHUNT_INCREMENTAL_CENTER
+					center_ready = true;
+				}
+#endif
 
 				for(i = 0; i < hLength; i++) {
 					dx[i].ModSub(&Gn[i].x,&startP.x);
