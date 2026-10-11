@@ -61,3 +61,11 @@ jobs:
         run: bash -n tests/arm64-parity-group-sweep.sh tests/arm64-parity-profile.sh
       - name: Verify canonical secp256k1 field reduction
         run: make arm64-field-test
+
+      - name: Test native ARM64 field multiplication and squaring variants
+        run: make arm64-field-variants-test
+      - name: Check native product instructions and benchmark script
+        run: |
+          objdump -d keyhunt-arm64-sha2-neon-su2-center-parity-field-mul | grep -Eq '\bmul\b'
+          objdump -d keyhunt-arm64-sha2-neon-su2-center-parity-field-mul | grep -Eq '\bumulh\b'
+          bash -n tests/arm64-field-benchmark.sh
