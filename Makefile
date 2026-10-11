@@ -386,3 +386,41 @@ arm64-field-comba-test: arm64-field-variants-test \
 	KEYHUNT_BIN=keyhunt-arm64-sha2-neon-su2-center-parity-field-comba-sqr bash tests/arm64-smoke.sh
 	KEYHUNT_BIN=keyhunt-arm64-sha2-neon-su2-center-parity-field-comba-sqr python3 tests/arm64-vectors.py
 	KEYHUNT_BIN=keyhunt-arm64-sha2-neon-su2-center-parity-field-comba-sqr bash tests/arm64-solved-fixtures.sh
+
+# Architectural audit probes: identical native row MUL+SQR field and HASH160.
+# Point algebra and direct one-target lookup are independently switchable.
+ARM64_FIELD_POINT_COMMON_OBJS := $(filter-out build/arm64/keyhunt-center-parity.o,$(ARM64_FIELD_CORE_OBJS)) \
+  build/arm64/secp256k1/IntMod-field-mul-sqr.o
+
+build/arm64/keyhunt-point-algebra.o: keyhunt.cpp
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -DKEYHUNT_INCREMENTAL_CENTER -DKEYHUNT_Y_PARITY -DKEYHUNT_POINT_ALGEBRA -c $< -o $@
+
+build/arm64/keyhunt-direct-one.o: keyhunt.cpp
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -DKEYHUNT_INCREMENTAL_CENTER -DKEYHUNT_Y_PARITY -DKEYHUNT_SINGLE_TARGET_DIRECT -c $< -o $@
+
+build/arm64/keyhunt-point-direct.o: keyhunt.cpp
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -DKEYHUNT_INCREMENTAL_CENTER -DKEYHUNT_Y_PARITY -DKEYHUNT_POINT_ALGEBRA -DKEYHUNT_SINGLE_TARGET_DIRECT -c $< -o $@
+
+keyhunt-arm64-sha2-neon-su2-center-parity-field-point: $(ARM64_FIELD_POINT_COMMON_OBJS) build/arm64/keyhunt-point-algebra.o
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread
+
+keyhunt-arm64-sha2-neon-su2-center-parity-field-direct1: $(ARM64_FIELD_POINT_COMMON_OBJS) build/arm64/keyhunt-direct-one.o
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread
+
+keyhunt-arm64-sha2-neon-su2-center-parity-field-point-direct1: $(ARM64_FIELD_POINT_COMMON_OBJS) build/arm64/keyhunt-point-direct.o
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread
+
+.PHONY: arm64-work-elimination arm64-work-elimination-test
+arm64-work-elimination: keyhunt-arm64-sha2-neon-su2-center-parity-field-mul-sqr \
+  keyhunt-arm64-sha2-neon-su2-center-parity-field-point \
+  keyhunt-arm64-sha2-neon-su2-center-parity-field-direct1 \
+  keyhunt-arm64-sha2-neon-su2-center-parity-field-point-direct1
+
+arm64-work-elimination-test: arm64-work-elimination
+	python3 tests/arm64-work-elimination-coverage.py
+	KEYHUNT_BIN=keyhunt-arm64-sha2-neon-su2-center-parity-field-point python3 tests/arm64-vectors.py
+	KEYHUNT_BIN=keyhunt-arm64-sha2-neon-su2-center-parity-field-direct1 python3 tests/arm64-vectors.py
+	KEYHUNT_BIN=keyhunt-arm64-sha2-neon-su2-center-parity-field-point-direct1 python3 tests/arm64-vectors.py
