@@ -889,6 +889,17 @@ int main(int argc, char **argv)	{
 				N_SEQUENTIAL_MAX = 0x100000000;
 			}
 		}
+		// Each search iteration generates CPU_GRP_SIZE points. Prevent
+		// overlapping chunks when a customized group size exceeds -n.
+		if (FLAGMODE == MODE_ADDRESS || FLAGMODE == MODE_RMD160 ||
+		    FLAGMODE == MODE_XPOINT) {
+			if (N_SEQUENTIAL_MAX < CPU_GRP_SIZE ||
+			    N_SEQUENTIAL_MAX % CPU_GRP_SIZE != 0) {
+				fprintf(stderr,"[E] -n must be a multiple of CPU_GRP_SIZE=%d; got %llu\n",
+				        CPU_GRP_SIZE,(unsigned long long)N_SEQUENTIAL_MAX);
+				exit(EXIT_FAILURE);
+			}
+		}
 		printf("[+] N = %p\n",(void*)N_SEQUENTIAL_MAX);
 		if(FLAGMODE == MODE_MINIKEYS)	{
 			BSGS_N.SetInt32(DEBUGCOUNT);
