@@ -308,5 +308,5 @@ arm64-parity-groups-test: arm64-parity-groups arm64-groups arm64-sha2-neon-su2-c
 	KEYHUNT_BIN=keyhunt-arm64-sha2-neon-su2-center-parity-512 bash tests/arm64-smoke.sh
 	KEYHUNT_BIN=keyhunt-arm64-sha2-neon-su2-center-parity-2048 bash tests/arm64-smoke.sh
 	KEYHUNT_BIN=keyhunt-arm64-sha2-neon-su2-center-parity-512 python3 tests/arm64-vectors.py
-	KEYHUNT_BIN=keyhunt-arm64-sha2-neon-su2-center-parity-2048 python3 tests/arm64-vectors.py
+	KEYHUNT_VECTOR_CHUNK=0x800 KEYHUNT_BIN=keyhunt-arm64-sha2-neon-su2-center-parity-2048 python3 tests/arm64-vectors.py
 	python3 tests/arm64-variant-coverage.py
