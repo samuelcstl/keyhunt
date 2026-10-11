@@ -25,7 +25,7 @@ if command -v vcgencmd >/dev/null 2>&1; then
   vcgencmd measure_temp
   vcgencmd get_throttled
 fi
-printf 'binary\tthreads\trepeat\ttotal_keys\treported_keys_s\tcycles\tinstructions\tbranches\tbranch_misses\n' > "$DIR/samples.tsv"
+printf 'binary\tthreads\trepeat\tsnapshot_keys\treported_keys_s\tperf_wall_s\testimated_keys\tcycles\tinstructions\tbranches\tbranch_misses\n' > "$DIR/samples.tsv"
 
 for threads in 1 4; do
   for ((rep=1; rep<=REPEATS; ++rep)); do
@@ -49,11 +49,14 @@ import re,sys
 from pathlib import Path
 bin,threads,rep,stat,log,output=sys.argv[1:]
 pmu={}
+wall_seconds=None
 for line in Path(stat).read_text().splitlines():
     cols=line.split(",")
     if len(cols)<3:
         continue
     key=cols[2].strip()
+    if "seconds time elapsed" in key:
+        wall_seconds=float(cols[0].strip())
     if key in ("cycles:u","instructions:u","branches:u","branch-misses:u"):
         raw=cols[0].strip().replace(" ","")
         if not raw.isdigit():
@@ -66,13 +69,21 @@ matches=re.findall(r"Total\s+(\d+)\s+keys in\s+(\d+)\s+seconds:.*?\((\d+)\s+keys
 if not matches:
     raise SystemExit(f"Could not find actual candidate rate in {log}")
 keys,elapsed,rate=map(int,matches[-1])
+# perf counts the entire timeout, whereas Keyhunt emits snapshots only
+# at multiples of -s (5s). Using the last snapshot's count directly
+# inflates absolute cycles/key by approximately perf_wall / snapshot_time.
+# Estimate full-window candidate count using steady-state reported rate.
+if wall_seconds is None or wall_seconds <= 0:
+    raise SystemExit(f"perf elapsed time missing in {stat}; cannot align counters")
+estimated_keys=rate*wall_seconds
 with open(output,"a") as f:
-    vals=[bin,threads,rep,keys,rate,pmu["cycles:u"],pmu["instructions:u"],
+    vals=[bin,threads,rep,keys,rate,round(wall_seconds,6),round(estimated_keys),
+          pmu["cycles:u"],pmu["instructions:u"],
           pmu["branches:u"],pmu["branch-misses:u"]]
     f.write("\t".join(map(str,vals))+"\n")
 print(f"{bin:62s} threads={threads} repeat={rep} "
-      f"rate={rate:,} cycles/key={pmu['cycles:u']/keys:,.1f} "
-      f"insn/key={pmu['instructions:u']/keys:,.1f}")
+      f"rate={rate:,} approx_cycles/key={pmu['cycles:u']/estimated_keys:,.1f} "
+      f"approx_insn/key={pmu['instructions:u']/estimated_keys:,.1f}")
 PY
     done
   done
@@ -84,21 +95,23 @@ from collections import defaultdict
 d=defaultdict(list)
 with open(sys.argv[1],newline="") as f:
     for row in csv.DictReader(f,delimiter="\t"):
-        row={k:(v if k=="binary" else int(v)) for k,v in row.items()}
+        row={k:(v if k=="binary" else float(v) if k=="perf_wall_s" else int(v))
+             for k,v in row.items()}
         d[(row["threads"],row["binary"])].append(row)
-print("\nMedian A/B hardware cost per candidate")
+print("\nMedian estimated A/B hardware cost per candidate")
 print("threads  variant             rate_keys/s    cycles/key    insn/key      IPC  branch_miss/key")
 for (threads,bin),rows in sorted(d.items()):
     med=lambda f: statistics.median(f(r) for r in rows)
     print(f"{threads:>7}  {('champion' if bin.endswith('point-direct1') else 'control'):18s} "
           f"{med(lambda r:r['reported_keys_s']):>12,.0f} "
-          f"{med(lambda r:r['cycles']/r['total_keys']):>13,.1f} "
-          f"{med(lambda r:r['instructions']/r['total_keys']):>11,.1f} "
+          f"{med(lambda r:r['cycles']/r['estimated_keys']):>13,.1f} "
+          f"{med(lambda r:r['instructions']/r['estimated_keys']):>11,.1f} "
           f"{med(lambda r:r['instructions']/r['cycles']):>8.2f} "
-          f"{med(lambda r:r['branch_misses']/r['total_keys']):>16.3f}")
-print("\nNote: total_key denominator is Keyhunt's measured count after startup;")
-print("perf counters include startup, so absolute cycles/key are slightly inflated.")
-print("Comparative deltas at the same worker count are the useful measure.")
+          f"{med(lambda r:r['branch_misses']/r['estimated_keys']):>16.3f}")
+print("\nNote: perf counts the full runtime, but Keyhunt snapshots omit the final")
+print("partial reporting interval. Denominator is estimated as last measured")
+print("candidate rate * perf elapsed seconds. Absolute costs remain approximate")
+print("because startup/exit are included; same-thread A/B ratios are most reliable.")
 PY
 if command -v vcgencmd >/dev/null 2>&1; then
   vcgencmd measure_temp
