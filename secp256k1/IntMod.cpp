@@ -852,6 +852,35 @@ void Int::MontgomeryMult(Int *a, Int *b) {
 
 // SecpK1 specific section -----------------------------------------------------------------------------
 
+// Complete the reduction modulo p = 2^256 - 0x1000003D1.
+// The older code discarded a potential carry and accepted rare non-canonical
+// values on the assumption that the situation was vanishingly unlikely.
+// An exact key search must remain correct even at those boundaries.
+// Inputs to these modular field operations are canonical residues.
+static inline void finish_k1_reduction(uint64_t out[5], uint8_t carry) {
+  static constexpr uint64_t C = 0x1000003D1ULL;
+  static constexpr uint64_t P0 = 0xFFFFFFFEFFFFFC2FULL;
+
+  // If the 256-bit result overflowed, 2^256 == C (mod p).
+  while (carry) {
+    carry = _addcarry_u64(0, out[0], C, &out[0]);
+    carry = _addcarry_u64(carry, out[1], 0ULL, &out[1]);
+    carry = _addcarry_u64(carry, out[2], 0ULL, &out[2]);
+    carry = _addcarry_u64(carry, out[3], 0ULL, &out[3]);
+  }
+
+  // p has limbs [P0, UINT64_MAX, UINT64_MAX, UINT64_MAX].
+  // A reduced 256-bit value can be at most one modulus too high.
+  if (out[1] == UINT64_MAX && out[2] == UINT64_MAX &&
+      out[3] == UINT64_MAX && out[0] >= P0) {
+    out[0] -= P0;
+    out[1] = 0;
+    out[2] = 0;
+    out[3] = 0;
+  }
+  out[4] = 0;
+}
+
 void Int::ModMulK1(Int *a, Int *b) {
 
 #ifndef _WIN64
@@ -909,8 +938,7 @@ void Int::ModMulK1(Int *a, Int *b) {
   c = _addcarry_u64(c, r512[2], 0ULL, bits64 + 2);
   c = _addcarry_u64(c, r512[3], 0ULL, bits64 + 3);
 
-  // Probability of carry here or that this>P is very very unlikely
-  bits64[4] = 0; 
+  finish_k1_reduction(bits64, c);
 
 }
 
@@ -969,8 +997,7 @@ void Int::ModMulK1(Int *a) {
   c = _addcarry_u64(c, r512[1], ah, bits64 + 1);
   c = _addcarry_u64(c, r512[2], 0, bits64 + 2);
   c = _addcarry_u64(c, r512[3], 0, bits64 + 3);
-  // Probability of carry here or that this>P is very very unlikely
-  bits64[4] = 0;
+  finish_k1_reduction(bits64, c);
 
 }
 
@@ -1087,8 +1114,7 @@ void Int::ModSquareK1(Int *a) {
   c = _addcarry_u64(c, r512[1], u11, bits64 + 1);
   c = _addcarry_u64(c, r512[2], 0, bits64 + 2);
   c = _addcarry_u64(c, r512[3], 0, bits64 + 3);
-  // Probability of carry here or that this>P is very very unlikely
-  bits64[4] = 0;
+  finish_k1_reduction(bits64, c);
 
 }
 
