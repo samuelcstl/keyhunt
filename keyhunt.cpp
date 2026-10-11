@@ -2860,19 +2860,10 @@ secp->GetHash160_fromX(P2PKH,0x02,&pts[(j*4)].x,&pts[(j*4)+1].x,&pts[(j*4)+2].x,
 									if(FLAGSEARCH == SEARCH_COMPRESS || FLAGSEARCH == SEARCH_BOTH){
 										if(FLAGENDOMORPHISM)	{
 											for(l = 0;l < 6; l++)	{
-												#ifdef KEYHUNT_SINGLE_TARGET_DIRECT
-												// Exact one-target matching, no Bloom/XXH64 overhead.
-												if (N == 1) {
-													r = memcmp(publickeyhashrmd160_endomorphism[l][k],
-													           addressTable[0].value, 20) == 0;
-												} else
-												#endif
-												{
-													r = bloom_check(&bloom,publickeyhashrmd160_endomorphism[l][k],MAXLENGTHADDRESS);
-													if (r)
-														r = searchbinary(addressTable,publickeyhashrmd160_endomorphism[l][k],N);
-												}
+												r = bloom_check(&bloom,publickeyhashrmd160_endomorphism[l][k],MAXLENGTHADDRESS);
 												if (r) {
+													r = searchbinary(addressTable,publickeyhashrmd160_endomorphism[l][k],N);
+													if (r) {
 													if(r) {
 														keyfound.SetInt32(k);
 														keyfound.Mult(&stride);
@@ -2933,9 +2924,19 @@ secp->GetHash160_fromX(P2PKH,0x02,&pts[(j*4)].x,&pts[(j*4)+1].x,&pts[(j*4)+2].x,
 										}
 										else	{
 											for(l = 0; l < (parity_search ? 1 : 2); l++)	{
+												#ifdef KEYHUNT_SINGLE_TARGET_DIRECT
+												r = N == 1
+												    ? (memcmp(publickeyhashrmd160_endomorphism[l][k],
+												              addressTable[0].value, 20) == 0)
+												    : bloom_check(&bloom,publickeyhashrmd160_endomorphism[l][k],MAXLENGTHADDRESS);
+												#else
 												r = bloom_check(&bloom,publickeyhashrmd160_endomorphism[l][k],MAXLENGTHADDRESS);
+												#endif
 												if(r) {
-													r = searchbinary(addressTable,publickeyhashrmd160_endomorphism[l][k],N);
+													#ifdef KEYHUNT_SINGLE_TARGET_DIRECT
+													if (N != 1)
+													#endif
+														r = searchbinary(addressTable,publickeyhashrmd160_endomorphism[l][k],N);
 													if(r) {
 														keyfound.SetInt32(k);
 														keyfound.Mult(&stride);
