@@ -20,7 +20,7 @@ names=(
 def scan(binary, working_dir):
     process=subprocess.run([
         str(root/binary), "-m","address", "-f",str(root/"tests"/"1to32.txt"),
-        "-r","1:40000", "-n","0x400", "-l","compress",
+        "-r","1:40000", "-n","0x2000", "-l","compress",
         "-t","1", "-q","-s","0"
     ],cwd=working_dir,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,
       text=True,timeout=65,check=False)
