@@ -788,3 +788,24 @@ void Secp256K1::GetHash160_fromX(int type,unsigned char prefix,
   }
 }
 
+
+// Exact compressed public-key HASH160 using each point's actual Y parity.
+// Four distinct SHA256 messages are processed in the existing 2-stream SU2
+// scheduler; RIPEMD160 remains the existing four-lane NEON backend.
+void Secp256K1::GetHash160_fromXYParity(int type,
+    Point *p0,Point *p1,Point *p2,Point *p3,
+    uint8_t *h0,uint8_t *h1,uint8_t *h2,uint8_t *h3) {
+  if (type != P2PKH) {
+    fprintf(stderr, "[E] parity-aware mode only supports P2PKH\n");
+    exit(EXIT_FAILURE);
+  }
+  uint32_t b0[16], b1[16], b2[16], b3[16];
+  Int *k0 = &p0->x, *k1 = &p1->x, *k2 = &p2->x, *k3 = &p3->x;
+  KEYBUFFPREFIX(b0,k0,p0->y.IsOdd() ? 0x03 : 0x02);
+  KEYBUFFPREFIX(b1,k1,p1->y.IsOdd() ? 0x03 : 0x02);
+  KEYBUFFPREFIX(b2,k2,p2->y.IsOdd() ? 0x03 : 0x02);
+  KEYBUFFPREFIX(b3,k3,p3->y.IsOdd() ? 0x03 : 0x02);
+  alignas(16) uint8_t sh0[32], sh1[32], sh2[32], sh3[32];
+  sha256sse_1B(b0,b1,b2,b3,sh0,sh1,sh2,sh3);
+  ripemd160sse_32(sh0,sh1,sh2,sh3,h0,h1,h2,h3);
+}
