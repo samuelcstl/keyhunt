@@ -182,3 +182,47 @@ arm64-sha2-neon-test: arm64-sha2-neon build/arm64/ripemd160-neon-selftest
 	KEYHUNT_BIN=keyhunt-arm64-sha2-neon bash tests/arm64-smoke.sh
 	KEYHUNT_BIN=keyhunt-arm64-sha2-neon python3 tests/arm64-vectors.py
 	KEYHUNT_BIN=keyhunt-arm64-sha2-neon bash tests/arm64-solved-fixtures.sh
+
+# SHA2 schedule/round fusion adopted from btc-sha256d-engine.
+# Distinct binary from the hardware-SHA2 + NEON baseline for exact A/B tests.
+ARM64_SU2_CORE_OBJS := $(filter-out build/arm64/hash/hash4_scalar.o,$(ARM64_CPP_OBJS)) \
+  $(ARM64_C_OBJS) build/arm64/hash/hash4_arm_sha2_su2.o \
+  build/arm64/hash/ripemd160_neon4.o
+ARM64_SU2_CENTER_OBJS := $(filter-out build/arm64/keyhunt.o,$(ARM64_SU2_CORE_OBJS)) \
+  build/arm64/keyhunt-center.o
+
+.PHONY: arm64-sha2-neon-su2 arm64-sha2-neon-su2-test
+.PHONY: arm64-sha2-neon-su2-center arm64-sha2-neon-su2-center-test
+
+arm64-sha2-neon-su2: keyhunt-arm64-sha2-neon-su2
+
+keyhunt-arm64-sha2-neon-su2: $(ARM64_SU2_CORE_OBJS)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread
+
+build/arm64/hash/hash4_arm_sha2_su2.o: hash/hash4_arm_sha2_su2.cpp
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_SHA2_CXXFLAGS) -c $< -o $@
+
+build/arm64/keyhunt-center.o: keyhunt.cpp
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -DKEYHUNT_INCREMENTAL_CENTER -c $< -o $@
+
+arm64-sha2-neon-su2-center: keyhunt-arm64-sha2-neon-su2-center
+
+keyhunt-arm64-sha2-neon-su2-center: $(ARM64_SU2_CENTER_OBJS)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread
+
+build/arm64/sha256-su2-selftest: tests/arm64-sha256-su2.cpp build/arm64/hash/hash4_arm_sha2_su2.o
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lcrypto
+
+arm64-sha2-neon-su2-test: arm64-sha2-neon-su2 build/arm64/sha256-su2-selftest
+	./build/arm64/sha256-su2-selftest
+	KEYHUNT_BIN=keyhunt-arm64-sha2-neon-su2 bash tests/arm64-smoke.sh
+	KEYHUNT_BIN=keyhunt-arm64-sha2-neon-su2 python3 tests/arm64-vectors.py
+	KEYHUNT_BIN=keyhunt-arm64-sha2-neon-su2 bash tests/arm64-solved-fixtures.sh
+
+arm64-sha2-neon-su2-center-test: arm64-sha2-neon-su2-center
+	KEYHUNT_BIN=keyhunt-arm64-sha2-neon-su2-center bash tests/arm64-smoke.sh
+	KEYHUNT_BIN=keyhunt-arm64-sha2-neon-su2-center python3 tests/arm64-vectors.py
+	KEYHUNT_BIN=keyhunt-arm64-sha2-neon-su2-center bash tests/arm64-solved-fixtures.sh
+	python3 tests/arm64-center-compare.py
