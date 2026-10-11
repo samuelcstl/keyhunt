@@ -45,3 +45,13 @@ jobs:
           else
             echo "Skipping native execution on runner without SHA2"
           fi
+      - name: Compile two-stream hardware SHA256SU0/SU1 variant
+        run: make arm64-sha2-neon-su2
+      - name: Check hardware SHA2 scheduling instructions
+        run: |
+          objdump -d keyhunt-arm64-sha2-neon-su2 | grep -Eq 'sha256su0'
+          objdump -d keyhunt-arm64-sha2-neon-su2 | grep -Eq 'sha256su1'
+      - name: Test independent SHA256 vectors and solved keys
+        run: make arm64-sha2-neon-su2-test
+      - name: Test grouped ECC center reuse against baseline
+        run: make arm64-sha2-neon-su2-center-test
