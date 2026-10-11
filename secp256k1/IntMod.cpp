@@ -850,6 +850,17 @@ void Int::MontgomeryMult(Int *a, Int *b) {
 }
 
 
+// Optional ARM64 field experiment. Baseline implementation is preserved
+// for independent A/B binaries and non-AArch64 builds.
+#if defined(KEYHUNT_ARM64_FIELD_MUL)
+#if !defined(__aarch64__)
+#error "KEYHUNT_ARM64_FIELD_MUL requires AArch64"
+#endif
+extern void field_k1_arm64_mul(uint64_t out[5], const uint64_t a[5],
+                               const uint64_t b[5]);
+extern void field_k1_arm64_square(uint64_t out[5], const uint64_t a[5]);
+#endif
+
 // SecpK1 specific section -----------------------------------------------------------------------------
 
 // Complete the reduction modulo p = 2^256 - 0x1000003D1.
@@ -882,6 +893,9 @@ static inline void finish_k1_reduction(uint64_t out[5], uint8_t carry) {
 }
 
 void Int::ModMulK1(Int *a, Int *b) {
+#if defined(KEYHUNT_ARM64_FIELD_MUL)
+  field_k1_arm64_mul(bits64, a->bits64, b->bits64);
+#else
 
 #ifndef _WIN64
 #if (__GNUC__ > 7) || (__GNUC__ == 7 && (__GNUC_MINOR__ > 2))
@@ -940,9 +954,14 @@ void Int::ModMulK1(Int *a, Int *b) {
 
   finish_k1_reduction(bits64, c);
 
+#endif
+
 }
 
 void Int::ModMulK1(Int *a) {
+#if defined(KEYHUNT_ARM64_FIELD_MUL)
+  field_k1_arm64_mul(bits64, bits64, a->bits64);
+#else
 
 #ifndef _WIN64
 #if (__GNUC__ > 7) || (__GNUC__ == 7 && (__GNUC_MINOR__ > 2))
@@ -999,9 +1018,14 @@ void Int::ModMulK1(Int *a) {
   c = _addcarry_u64(c, r512[3], 0, bits64 + 3);
   finish_k1_reduction(bits64, c);
 
+#endif
+
 }
 
 void Int::ModSquareK1(Int *a) {
+#if defined(KEYHUNT_ARM64_FIELD_SQUARE)
+  field_k1_arm64_square(bits64, a->bits64);
+#else
 
 #ifndef _WIN64
 #if (__GNUC__ > 7) || (__GNUC__ == 7 && (__GNUC_MINOR__ > 2))
@@ -1115,6 +1139,8 @@ void Int::ModSquareK1(Int *a) {
   c = _addcarry_u64(c, r512[2], 0, bits64 + 2);
   c = _addcarry_u64(c, r512[3], 0, bits64 + 3);
   finish_k1_reduction(bits64, c);
+
+#endif
 
 }
 
