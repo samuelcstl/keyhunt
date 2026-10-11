@@ -15,6 +15,8 @@ names=(
     "keyhunt-arm64-sha2-neon-su2-center-parity",
     "keyhunt-arm64-sha2-neon-su2-center-512",
     "keyhunt-arm64-sha2-neon-su2-center-2048",
+    "keyhunt-arm64-sha2-neon-su2-center-parity-512",
+    "keyhunt-arm64-sha2-neon-su2-center-parity-2048",
 )
 
 def scan(binary, working_dir):
@@ -47,7 +49,7 @@ def main():
     missing=necessary-set(reference)
     if missing:
         raise AssertionError(f"Missing expected solved keys: {sorted(missing)}")
-    print(f"PASS: {len(reference)} identical solved private keys across all 4 variants")
+    print(f"PASS: {len(reference)} identical solved private keys across all {len(names)} variants")
     print("PASS: all variants crossed 512/1024/2048-point group boundaries")
     # Regression: a 2048-point loop with -n 1024 silently searched
     # overlapping work across successive assigned ranges.
