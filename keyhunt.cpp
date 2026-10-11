@@ -2770,6 +2770,9 @@ void *thread_process(void *vargp)	{
 				}
 								
 				for(j = 0; j < CPU_GRP_SIZE/4;j++){
+#ifdef KEYHUNT_NEON_TARGET_COMPARE
+					uint8_t neon_target_matches = 0x0F;
+#endif
 					switch(FLAGMODE)	{
 						case MODE_RMD160:
 						case MODE_ADDRESS:
@@ -2789,6 +2792,18 @@ void *thread_process(void *vargp)	{
 									else	{
 #ifdef KEYHUNT_Y_PARITY
 										if (parity_search) {
+											#ifdef KEYHUNT_NEON_TARGET_COMPARE
+											if (N == 1) {
+												neon_target_matches = secp->GetHash160_fromXYParityTarget(P2PKH,
+													&pts[j*4], &pts[j*4+1], &pts[j*4+2], &pts[j*4+3],
+													addressTable[0].value);
+												for (int lane = 0; lane < 4; ++lane) {
+													if (neon_target_matches & (1u << lane))
+														memcpy(publickeyhashrmd160_endomorphism[0][lane],
+														       addressTable[0].value, 20);
+												}
+											} else
+#endif
 											secp->GetHash160_fromXYParity(P2PKH,
 												&pts[j*4],&pts[j*4+1],&pts[j*4+2],&pts[j*4+3],
 												(uint8_t*)publickeyhashrmd160_endomorphism[0][0],
@@ -2862,6 +2877,11 @@ secp->GetHash160_fromX(P2PKH,0x02,&pts[(j*4)].x,&pts[(j*4)+1].x,&pts[(j*4)+2].x,
 							if( FLAGCRYPTO  == CRYPTO_BTC) {
 								
 								for(k = 0; k < 4;k++)	{
+#ifdef KEYHUNT_NEON_TARGET_COMPARE
+									if (parity_search && N == 1 &&
+									    !(neon_target_matches & (1u << k)))
+										continue;
+#endif
 									if(FLAGSEARCH == SEARCH_COMPRESS || FLAGSEARCH == SEARCH_BOTH){
 										if(FLAGENDOMORPHISM)	{
 											for(l = 0;l < 6; l++)	{
