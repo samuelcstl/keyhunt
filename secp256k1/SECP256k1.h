@@ -58,6 +58,11 @@ public:
   Int *k0,Int *k1,Int *k2,Int *k3,
   uint8_t *h0,uint8_t *h1,uint8_t *h2,uint8_t *h3);
 
+  // Fixed-width SHA2 + NEON path for exact pubkey parity (no negated key).
+  void GetHash160_fromXYParity(int type,
+  Point *p0,Point *p1,Point *p2,Point *p3,
+  uint8_t *h0,uint8_t *h1,uint8_t *h2,uint8_t *h3);
+
 
   Point Add(Point &p1, Point &p2);
   Point Add2(Point &p1, Point &p2);
