@@ -820,10 +820,11 @@ uint8_t Secp256K1::GetHash160_fromXYParityTarget(int type,
     exit(EXIT_FAILURE);
   }
   uint32_t b0[16], b1[16], b2[16], b3[16];
-  KEYBUFFPREFIX(b0,&p0->x,p0->y.IsOdd() ? 0x03 : 0x02);
-  KEYBUFFPREFIX(b1,&p1->x,p1->y.IsOdd() ? 0x03 : 0x02);
-  KEYBUFFPREFIX(b2,&p2->x,p2->y.IsOdd() ? 0x03 : 0x02);
-  KEYBUFFPREFIX(b3,&p3->x,p3->y.IsOdd() ? 0x03 : 0x02);
+  Int *k0=&p0->x, *k1=&p1->x, *k2=&p2->x, *k3=&p3->x;
+  KEYBUFFPREFIX(b0,k0,p0->y.IsOdd() ? 0x03 : 0x02);
+  KEYBUFFPREFIX(b1,k1,p1->y.IsOdd() ? 0x03 : 0x02);
+  KEYBUFFPREFIX(b2,k2,p2->y.IsOdd() ? 0x03 : 0x02);
+  KEYBUFFPREFIX(b3,k3,p3->y.IsOdd() ? 0x03 : 0x02);
   alignas(16) uint8_t sh0[32],sh1[32],sh2[32],sh3[32];
   sha256sse_1B(b0,b1,b2,b3,sh0,sh1,sh2,sh3);
   return ripemd160sse_32_target(sh0,sh1,sh2,sh3,target);
