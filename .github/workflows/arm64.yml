@@ -31,3 +31,17 @@ jobs:
           else
             echo "CPU lacks ARM SHA2 instruction support, only build verified"
           fi
+
+      - name: Compile hardware SHA2 with four-way NEON RIPEMD160
+        run: make arm64-sha2-neon
+      - name: Verify both SHA2 and NEON instructions are present
+        run: |
+          objdump -d keyhunt-arm64-sha2-neon | grep -Eq 'sha256h2?'
+          objdump -d keyhunt-arm64-sha2-neon | grep -Eq 'ushl|shl|sli|orr'
+      - name: Validate four-way NEON RIPEMD160 and recovered puzzle keys
+        run: |
+          if grep -qE '(^| )sha2( |$)' /proc/cpuinfo; then
+            make arm64-sha2-neon-test
+          else
+            echo "Skipping native execution on runner without SHA2"
+          fi
