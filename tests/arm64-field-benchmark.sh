@@ -15,11 +15,12 @@ variants=(
   keyhunt-arm64-sha2-neon-su2-center-parity
   keyhunt-arm64-sha2-neon-su2-center-parity-field-mul
   keyhunt-arm64-sha2-neon-su2-center-parity-field-mul-sqr
+  keyhunt-arm64-sha2-neon-su2-center-parity-field-comba-sqr
 )
 for bin in "${variants[@]}"; do
   [[ -x "$REPO/$bin" ]] || { echo "Build missing $bin" >&2; exit 2; }
 done
-printf 'Pi 5 parity field A/B/C: same 1024 group, same SHA256/RIPEMD search path\n'
+printf 'Pi 5 parity field A/B/C/D: same 1024 group, same SHA256/RIPEMD search path\n'
 printf '%-62s %4s %16s\n' Binary CPUs Candidates_per_s
 for threads in 1 4; do
   for bin in "${variants[@]}"; do
