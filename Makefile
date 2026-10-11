@@ -269,3 +269,13 @@ arm64-groups-test: arm64-groups arm64-parity arm64-sha2-neon-su2-center
 	KEYHUNT_BIN=keyhunt-arm64-sha2-neon-su2-center-512 bash tests/arm64-smoke.sh
 	KEYHUNT_BIN=keyhunt-arm64-sha2-neon-su2-center-2048 bash tests/arm64-smoke.sh
 	python3 tests/arm64-variant-coverage.py
+
+# Independent Python big-int reference checks for field multiplication.
+.PHONY: arm64-field-test
+build/arm64/field-k1-check: tests/arm64-field-k1-check.cpp \
+  build/arm64/secp256k1/Int.o build/arm64/secp256k1/IntMod.o \
+  build/arm64/secp256k1/Random.o build/arm64/secp256k1/IntGroup.o
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^
+
+arm64-field-test: build/arm64/field-k1-check
+	python3 tests/arm64-field-k1-check.py
