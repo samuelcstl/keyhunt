@@ -8,7 +8,7 @@ ROOT="$(cd "$REPO/.." && pwd)"
 BIN="${KEYHUNT_PROFILE_BIN:-keyhunt-arm64-sha2-neon-su2-center-parity}"
 THREADS="${KEYHUNT_PROFILE_THREADS:-1}"
 RUN="${KEYHUNT_PROFILE_DIR:-$ROOT/runs/profile71-su2-parity}"
-SECONDS="${KEYHUNT_PROFILE_SECONDS:-32}"
+DURATION="${KEYHUNT_PROFILE_SECONDS:-32}"
 TARGET="${KEYHUNT_TARGET:-$ROOT/runs/bench71/target.txt}"
 
 command -v perf >/dev/null || { echo "perf is not installed" >&2; exit 2; }
@@ -16,11 +16,11 @@ command -v perf >/dev/null || { echo "perf is not installed" >&2; exit 2; }
 [[ -f "$TARGET" ]] || { echo "Target missing: $TARGET" >&2; exit 2; }
 mkdir -p "$RUN"
 
-echo "Profiling $BIN with $THREADS thread(s) for ${SECONDS}s"
+echo "Profiling $BIN with $THREADS thread(s) for ${DURATION}s"
 echo "Output: $RUN"
 rc=0
 perf record -e cpu-clock:u -F 99 -o "$RUN/perf.data" \
-  -- timeout --signal=TERM --kill-after=5s "${SECONDS}s" \
+  -- timeout --signal=TERM --kill-after=5s "${DURATION}s" \
   nice -n 15 "$REPO/$BIN" \
     -m address -f "$TARGET" -b 71 -l compress -R \
     -n 0x100000 -t "$THREADS" -q -s 10 \
