@@ -68,10 +68,12 @@ static inline V gather32(const uint8_t *p0, const uint8_t *p1,
   return vld1q_u32(lane);
 }
 
-static inline void transform4(const uint8_t *p0, const uint8_t *p1,
+template<bool CompareTarget>
+static inline uint8_t transform4(const uint8_t *p0, const uint8_t *p1,
                               const uint8_t *p2, const uint8_t *p3,
                               uint8_t *dst0, uint8_t *dst1,
-                              uint8_t *dst2, uint8_t *dst3) {
+                              uint8_t *dst2, uint8_t *dst3,
+                              const uint8_t *target) {
   V w[16];
   for (int i=0;i<8;i++) w[i]=gather32(p0,p1,p2,p3,i);
   w[8]=vdupq_n_u32(0x80u);
@@ -256,19 +258,40 @@ static inline void transform4(const uint8_t *p0, const uint8_t *p1,
   V out3=vaddq_u32(vaddq_u32(h4,a1),b2);
   V out4=vaddq_u32(vaddq_u32(h0,b1),c2);
 
-  uint32_t results[5][4];
-  vst1q_u32(results[0],out0);
-  vst1q_u32(results[1],out1);
-  vst1q_u32(results[2],out2);
-  vst1q_u32(results[3],out3);
-  vst1q_u32(results[4],out4);
-  uint8_t *dst[4]={dst0,dst1,dst2,dst3};
-  for (int lane=0;lane<4;lane++) {
-    const uint32_t words[5]={
-      results[0][lane],results[1][lane],results[2][lane],
-      results[3][lane],results[4][lane]
-    };
-    std::memcpy(dst[lane],words,20);
+  if constexpr (CompareTarget) {
+    // Exact five-word equality while each lane remains in NEON registers.
+    // No four-lane digest transpose, 4x20-byte output, or scalar memcmp
+    // on the overwhelmingly common no-hit path.
+    uint32_t t[5];
+    for (int i=0;i<5;i++)
+      std::memcpy(&t[i], target + 4*i, sizeof(uint32_t));
+    V eq = vceqq_u32(out0,vdupq_n_u32(t[0]));
+    eq = vandq_u32(eq,vceqq_u32(out1,vdupq_n_u32(t[1])));
+    eq = vandq_u32(eq,vceqq_u32(out2,vdupq_n_u32(t[2])));
+    eq = vandq_u32(eq,vceqq_u32(out3,vdupq_n_u32(t[3])));
+    eq = vandq_u32(eq,vceqq_u32(out4,vdupq_n_u32(t[4])));
+    const uint32x4_t flags = vshrq_n_u32(eq,31);
+    return static_cast<uint8_t>(
+        vgetq_lane_u32(flags,0) |
+       (vgetq_lane_u32(flags,1) << 1) |
+       (vgetq_lane_u32(flags,2) << 2) |
+       (vgetq_lane_u32(flags,3) << 3));
+  } else {
+    uint32_t results[5][4];
+    vst1q_u32(results[0],out0);
+    vst1q_u32(results[1],out1);
+    vst1q_u32(results[2],out2);
+    vst1q_u32(results[3],out3);
+    vst1q_u32(results[4],out4);
+    uint8_t *dst[4]={dst0,dst1,dst2,dst3};
+    for (int lane=0;lane<4;lane++) {
+      const uint32_t words[5]={
+        results[0][lane],results[1][lane],results[2][lane],
+        results[3][lane],results[4][lane]
+      };
+      std::memcpy(dst[lane],words,20);
+    }
+    return 0;
   }
 }
 #undef ROL
@@ -292,5 +315,11 @@ static inline void transform4(const uint8_t *p0, const uint8_t *p1,
 
 void ripemd160sse_32(uint8_t *i0,uint8_t *i1,uint8_t *i2,uint8_t *i3,
                       uint8_t *d0,uint8_t *d1,uint8_t *d2,uint8_t *d3) {
-  transform4(i0,i1,i2,i3,d0,d1,d2,d3);
+  (void)transform4<false>(i0,i1,i2,i3,d0,d1,d2,d3,nullptr);
+}
+
+uint8_t ripemd160sse_32_target(const uint8_t *i0,const uint8_t *i1,
+                             const uint8_t *i2,const uint8_t *i3,
+                             const uint8_t *target) {
+  return transform4<true>(i0,i1,i2,i3,nullptr,nullptr,nullptr,nullptr,target);
 }
