@@ -878,28 +878,22 @@ int main(int argc, char **argv)	{
 				N_SEQUENTIAL_MAX =strtol(str_N,NULL,10);
 			}
 			
-			if(N_SEQUENTIAL_MAX < 1024)	{
-				fprintf(stderr,"[I] n value need to be equal or great than 1024, back to defaults\n");
-				FLAG_N = 0;
-				N_SEQUENTIAL_MAX = 0x100000000;
-			}
-			if(N_SEQUENTIAL_MAX % 1024 != 0)	{
-				fprintf(stderr,"[I] n value need to be multiplier of  1024\n");
-				FLAG_N = 0;
-				N_SEQUENTIAL_MAX = 0x100000000;
-			}
-		}
-		// Each search iteration generates CPU_GRP_SIZE points. Prevent
-		// overlapping chunks when a customized group size exceeds -n.
-		if (FLAGMODE == MODE_ADDRESS || FLAGMODE == MODE_RMD160 ||
-		    FLAGMODE == MODE_XPOINT) {
-			if (N_SEQUENTIAL_MAX < CPU_GRP_SIZE ||
-			    N_SEQUENTIAL_MAX % CPU_GRP_SIZE != 0) {
-				fprintf(stderr,"[E] -n must be a multiple of CPU_GRP_SIZE=%d; got %llu\n",
-				        CPU_GRP_SIZE,(unsigned long long)N_SEQUENTIAL_MAX);
+			// A chunk must contain whole ECC groups. Silent fallback to the
+			// huge default is dangerous because it changes assigned coverage.
+			const uint64_t chunk_unit =
+			    (FLAGMODE == MODE_ADDRESS || FLAGMODE == MODE_RMD160 ||
+			     FLAGMODE == MODE_XPOINT) ? CPU_GRP_SIZE : 1024;
+			if (N_SEQUENTIAL_MAX < chunk_unit ||
+			    N_SEQUENTIAL_MAX % chunk_unit != 0) {
+				fprintf(stderr,
+				        "[E] -n must be at least %llu and a multiple of %llu; got %llu\n",
+				        (unsigned long long)chunk_unit,
+				        (unsigned long long)chunk_unit,
+				        (unsigned long long)N_SEQUENTIAL_MAX);
 				exit(EXIT_FAILURE);
 			}
 		}
+
 		printf("[+] N = %p\n",(void*)N_SEQUENTIAL_MAX);
 		if(FLAGMODE == MODE_MINIKEYS)	{
 			BSGS_N.SetInt32(DEBUGCOUNT);
@@ -2165,7 +2159,15 @@ int main(int argc, char **argv)	{
 	continue_flag = 1;
 	total.SetInt32(0);
 	pretotal.SetInt32(0);
-	debugcount_mpz.Set(&BSGS_N);
+	// The CPU search loops advance one group per steps[] increment.
+// DEBUGCOUNT/BSGS_N is the legacy 1024-point default, not the
+// compiled size of the optional ARM64 ECC group variants.
+if (FLAGMODE == MODE_ADDRESS || FLAGMODE == MODE_RMD160 ||
+    FLAGMODE == MODE_XPOINT) {
+  debugcount_mpz.SetInt32(CPU_GRP_SIZE);
+} else {
+  debugcount_mpz.Set(&BSGS_N);
+}
 	seconds.SetInt32(0);
 	do	{
 		sleep_ms(1000);
