@@ -57,3 +57,5 @@ jobs:
         run: make arm64-sha2-neon-su2-center-test
       - name: Compare Y-parity and alternative ECC group-size correctness
         run: make arm64-parity-test arm64-groups-test
+      - name: Verify canonical secp256k1 field reduction
+        run: make arm64-field-test
