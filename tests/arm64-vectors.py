@@ -77,7 +77,7 @@ def run_vector(exe, name, key, directory):
     target.write_text(address + "\n", encoding="utf-8")
     args = [
         str(exe), "-m", "address", "-f", str(target),
-        "-r", f"{start:x}:{end:x}", "-n", "0x400",
+        "-r", f"{start:x}:{end:x}", "-n", os.environ.get("KEYHUNT_VECTOR_CHUNK", "0x400"),
         "-l", "compress", "-t", "1", "-q", "-s", "0",
     ]
     result = subprocess.run(
