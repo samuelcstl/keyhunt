@@ -11,6 +11,8 @@ TARGET="${KEYHUNT_TARGET:-$ROOT/runs/bench71/target.txt}"
 DURATION="${KEYHUNT_BENCH_SECONDS:-120}"
 REPEATS="${KEYHUNT_BENCH_REPEATS:-1}"
 MODE="${KEYHUNT_BENCH_MODE:-both}"       # both | control | neon
+CHUNK="${KEYHUNT_BENCH_CHUNK:-0x100000}"
+PUZZLE="${KEYHUNT_BENCH_PUZZLE:-71}"
 PERF="${KEYHUNT_BENCH_PERF:-1}"        # 1 hardware counters; 0 throughput-only
 read -r -a THREADS <<< "${KEYHUNT_BENCH_THREADS:-4}"
 BASE=keyhunt-arm64-sha2-neon-su2-center-parity-field-point-direct1
@@ -18,12 +20,21 @@ NEON=keyhunt-arm64-sha2-neon-su2-center-parity-field-point-direct1-neon
 [[ "$DURATION" =~ ^[0-9]+$ ]] && ((DURATION>=10)) || { echo "Invalid DURATION" >&2; exit 2; }
 [[ "$REPEATS" =~ ^[0-9]+$ ]] && ((REPEATS>=1)) || { echo "Invalid REPEATS" >&2; exit 2; }
 [[ "$PERF" =~ ^[01]$ ]] || { echo "Invalid KEYHUNT_BENCH_PERF" >&2; exit 2; }
-case "$MODE" in
-  both) variants=("$BASE" "$NEON") ;;
-  control) variants=("$BASE") ;;
-  neon) variants=("$NEON") ;;
-  *) echo "Invalid KEYHUNT_BENCH_MODE ($MODE)" >&2; exit 2 ;;
-esac
+if [[ -n "${KEYHUNT_BENCH_BINARIES:-}" ]]; then
+  # Target any future binary without changing the script or re-running history.
+  read -r -a variants <<< "$KEYHUNT_BENCH_BINARIES"
+  MODE=custom
+else
+  case "$MODE" in
+    both) variants=("$BASE" "$NEON") ;;
+    control) variants=("$BASE") ;;
+    neon) variants=("$NEON") ;;
+    *) echo "Invalid KEYHUNT_BENCH_MODE ($MODE)" >&2; exit 2 ;;
+  esac
+fi
+(( ${#variants[@]} > 0 )) || { echo "No binaries selected" >&2; exit 2; }
+[[ "$PUZZLE" =~ ^[0-9]+$ ]] || { echo "Invalid puzzle bit count" >&2; exit 2; }
+[[ "$CHUNK" =~ ^(0x[0-9a-fA-F]+|[0-9]+)$ ]] || { echo "Invalid chunk size" >&2; exit 2; }
 for threads in "${THREADS[@]}"; do
   [[ "$threads" =~ ^[1-9][0-9]*$ ]] || { echo "Invalid thread count $threads" >&2; exit 2; }
 done
@@ -33,10 +44,10 @@ for bin in "${variants[@]}"; do
 done
 if ((PERF)); then command -v perf >/dev/null || { echo "Missing perf; use KEYHUNT_BENCH_PERF=0" >&2; exit 2; }; fi
 mkdir -p "$DIR"
-echo "Two-minute sustained run: seconds=$DURATION, threads=${THREADS[*]}, repeats=$REPEATS, mode=$MODE, perf=$PERF"
+echo "Two-minute sustained run: seconds=$DURATION, threads=${THREADS[*]}, repeats=$REPEATS, mode=$MODE, perf=$PERF, puzzle=$PUZZLE, chunk=$CHUNK"
 printf 'variant\tthreads\trun\tkeys_per_second\tfirst_half_rate\tsecond_half_rate\tcycles\tinstructions\tbranches\tbranch_misses\tapprox_keys_full_window\n' > "$DIR/results.tsv"
-printf 'head=%s\nstarted_utc=%s\nseconds=%s\nthreads=%s\nrepeats=%s\nmode=%s\nperf=%s\ntarget=%s\n' \
-  "$(git -C "$REPO" rev-parse HEAD)" "$(date -u +%FT%TZ)" "$DURATION" "${THREADS[*]}" "$REPEATS" "$MODE" "$PERF" "$TARGET" > "$DIR/config.txt"
+printf 'head=%s\nstarted_utc=%s\nseconds=%s\nthreads=%s\nrepeats=%s\nmode=%s\nperf=%s\ntarget=%s\npuzzle=%s\nchunk=%s\n' \
+  "$(git -C "$REPO" rev-parse HEAD)" "$(date -u +%FT%TZ)" "$DURATION" "${THREADS[*]}" "$REPEATS" "$MODE" "$PERF" "$TARGET" "$PUZZLE" "$CHUNK" > "$DIR/config.txt"
 sensor_stop=''
 trap '[[ -z "$sensor_stop" ]] || touch "$sensor_stop"' EXIT
 for threads in "${THREADS[@]}";do
@@ -62,7 +73,7 @@ for threads in "${THREADS[@]}";do
             echo "Running $bin threads=$threads repetition=$rep for ${DURATION}s"
             args=(timeout --foreground --signal=TERM --kill-after=5s "${DURATION}s" \
               nice -n 15 "$REPO/$bin" -m address -f "$TARGET" \
-              -b 71 -l compress -R -n 0x100000 -t "$threads" -q -s 5)
+              -b "$PUZZLE" -l compress -R -n "$CHUNK" -t "$threads" -q -s 5)
             rc=0
             if ((PERF)); then
               perf stat -x, -e cycles:u,instructions:u,branches:u,branch-misses:u \
@@ -145,7 +156,7 @@ for (threads,name),group in sorted(data.items()):
     early,late=med('first_half_rate'),med('second_half_rate')
     print(f"threads={threads} median={med('keys_per_second'):,.0f}/s "
           f"late-vs-early={(late/early-1)*100:+.2f}% "
-          f"{'NEON SIMD target' if name.endswith('-neon') else 'full-digest control'}")
+          f"{name}")
     if all(x['cycles'] for x in group):
         cy,ins,br,mis,keys=(med(k) for k in ('cycles','instructions','branches',
                                             'branch_misses','approx_keys_full_window'))
