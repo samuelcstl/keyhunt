@@ -362,3 +362,27 @@ arm64-field-variants-test: arm64-field-variants arm64-field-test \
 	KEYHUNT_BIN=keyhunt-arm64-sha2-neon-su2-center-parity-field-mul-sqr python3 tests/arm64-vectors.py
 	KEYHUNT_BIN=keyhunt-arm64-sha2-neon-su2-center-parity-field-mul bash tests/arm64-solved-fixtures.sh
 	KEYHUNT_BIN=keyhunt-arm64-sha2-neon-su2-center-parity-field-mul-sqr bash tests/arm64-solved-fixtures.sh
+
+# Alternative product-accumulation order: column Comba vs row kernel,
+# with identical field reduction, exact parity and native squaring.
+build/arm64/secp256k1/IntMod-field-comba-sqr.o: secp256k1/IntMod.cpp
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -DKEYHUNT_ARM64_FIELD_COMBA -DKEYHUNT_ARM64_FIELD_SQUARE -c $< -o $@
+
+keyhunt-arm64-sha2-neon-su2-center-parity-field-comba-sqr: $(ARM64_FIELD_CORE_OBJS) build/arm64/secp256k1/IntMod-field-comba-sqr.o
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread
+
+build/arm64/field-k1-check-comba-sqr: tests/arm64-field-k1-check.cpp \
+  build/arm64/secp256k1/Int.o build/arm64/secp256k1/IntMod-field-comba-sqr.o \
+  build/arm64/secp256k1/Random.o build/arm64/secp256k1/IntGroup.o \
+  build/arm64/secp256k1/field_k1_arm64.o
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^
+
+.PHONY: arm64-field-comba-test
+arm64-field-comba-test: arm64-field-variants-test \
+  keyhunt-arm64-sha2-neon-su2-center-parity-field-comba-sqr \
+  build/arm64/field-k1-check-comba-sqr
+	KEYHUNT_FIELD_CHECK_BIN=build/arm64/field-k1-check-comba-sqr python3 tests/arm64-field-k1-check.py
+	KEYHUNT_BIN=keyhunt-arm64-sha2-neon-su2-center-parity-field-comba-sqr bash tests/arm64-smoke.sh
+	KEYHUNT_BIN=keyhunt-arm64-sha2-neon-su2-center-parity-field-comba-sqr python3 tests/arm64-vectors.py
+	KEYHUNT_BIN=keyhunt-arm64-sha2-neon-su2-center-parity-field-comba-sqr bash tests/arm64-solved-fixtures.sh
