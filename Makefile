@@ -310,3 +310,55 @@ arm64-parity-groups-test: arm64-parity-groups arm64-groups arm64-sha2-neon-su2-c
 	KEYHUNT_BIN=keyhunt-arm64-sha2-neon-su2-center-parity-512 python3 tests/arm64-vectors.py
 	KEYHUNT_VECTOR_CHUNK=0x800 KEYHUNT_BIN=keyhunt-arm64-sha2-neon-su2-center-parity-2048 python3 tests/arm64-vectors.py
 	python3 tests/arm64-variant-coverage.py
+
+# AArch64 4x64-bit prime-field kernel experiments. Control remains the exact
+# SU2+NEON+parity binary with original IntMod.o. Only replace IntMod field
+# functions in experimental binaries. Keep multiplication and squaring separate.
+ARM64_FIELD_CORE_OBJS := $(filter-out build/arm64/secp256k1/IntMod.o,$(ARM64_PARITY_OBJS)) \
+  build/arm64/secp256k1/field_k1_arm64.o
+
+build/arm64/secp256k1/field_k1_arm64.o: secp256k1/field_k1_arm64.cpp
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -c $< -o $@
+
+build/arm64/secp256k1/IntMod-field-mul.o: secp256k1/IntMod.cpp
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -DKEYHUNT_ARM64_FIELD_MUL -c $< -o $@
+
+build/arm64/secp256k1/IntMod-field-mul-sqr.o: secp256k1/IntMod.cpp
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -DKEYHUNT_ARM64_FIELD_MUL -DKEYHUNT_ARM64_FIELD_SQUARE -c $< -o $@
+
+keyhunt-arm64-sha2-neon-su2-center-parity-field-mul: $(ARM64_FIELD_CORE_OBJS) build/arm64/secp256k1/IntMod-field-mul.o
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread
+
+keyhunt-arm64-sha2-neon-su2-center-parity-field-mul-sqr: $(ARM64_FIELD_CORE_OBJS) build/arm64/secp256k1/IntMod-field-mul-sqr.o
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread
+
+.PHONY: arm64-field-variants arm64-field-variants-test
+arm64-field-variants: arm64-parity \
+  keyhunt-arm64-sha2-neon-su2-center-parity-field-mul \
+  keyhunt-arm64-sha2-neon-su2-center-parity-field-mul-sqr
+
+build/arm64/field-k1-check-mul: tests/arm64-field-k1-check.cpp \
+  build/arm64/secp256k1/Int.o build/arm64/secp256k1/IntMod-field-mul.o \
+  build/arm64/secp256k1/Random.o build/arm64/secp256k1/IntGroup.o \
+  build/arm64/secp256k1/field_k1_arm64.o
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^
+
+build/arm64/field-k1-check-mul-sqr: tests/arm64-field-k1-check.cpp \
+  build/arm64/secp256k1/Int.o build/arm64/secp256k1/IntMod-field-mul-sqr.o \
+  build/arm64/secp256k1/Random.o build/arm64/secp256k1/IntGroup.o \
+  build/arm64/secp256k1/field_k1_arm64.o
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^
+
+arm64-field-variants-test: arm64-field-variants arm64-field-test \
+  build/arm64/field-k1-check-mul build/arm64/field-k1-check-mul-sqr
+	KEYHUNT_FIELD_CHECK_BIN=build/arm64/field-k1-check-mul python3 tests/arm64-field-k1-check.py
+	KEYHUNT_FIELD_CHECK_BIN=build/arm64/field-k1-check-mul-sqr python3 tests/arm64-field-k1-check.py
+	KEYHUNT_BIN=keyhunt-arm64-sha2-neon-su2-center-parity-field-mul bash tests/arm64-smoke.sh
+	KEYHUNT_BIN=keyhunt-arm64-sha2-neon-su2-center-parity-field-mul-sqr bash tests/arm64-smoke.sh
+	KEYHUNT_BIN=keyhunt-arm64-sha2-neon-su2-center-parity-field-mul python3 tests/arm64-vectors.py
+	KEYHUNT_BIN=keyhunt-arm64-sha2-neon-su2-center-parity-field-mul-sqr python3 tests/arm64-vectors.py
+	KEYHUNT_BIN=keyhunt-arm64-sha2-neon-su2-center-parity-field-mul bash tests/arm64-solved-fixtures.sh
+	KEYHUNT_BIN=keyhunt-arm64-sha2-neon-su2-center-parity-field-mul-sqr bash tests/arm64-solved-fixtures.sh
