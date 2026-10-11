@@ -2577,6 +2577,10 @@ void *thread_process(void *vargp)	{
 	if (thread_number == 0 && parity_search && N == 1)
 		fprintf(stderr, "[I] Direct single-target HASH160 path active\n");
 #endif
+#ifdef KEYHUNT_NEON_TARGET_COMPARE
+	if (thread_number == 0 && parity_search && N == 1)
+		fprintf(stderr,"[I] Four-lane NEON target comparison active\n");
+#endif
 	grp->Set(dx);
 			
 	do {
