@@ -243,7 +243,7 @@ keyhunt-arm64-sha2-neon-su2-center-parity: $(ARM64_PARITY_OBJS)
 
 arm64-parity: keyhunt-arm64-sha2-neon-su2-center-parity
 
-arm64-parity-test: arm64-parity arm64-groups arm64-sha2-neon-su2-center
+arm64-parity-test: arm64-parity arm64-groups arm64-sha2-neon-su2-center arm64-parity-groups
 	KEYHUNT_BIN=keyhunt-arm64-sha2-neon-su2-center-parity bash tests/arm64-smoke.sh
 	KEYHUNT_BIN=keyhunt-arm64-sha2-neon-su2-center-parity python3 tests/arm64-vectors.py
 	KEYHUNT_BIN=keyhunt-arm64-sha2-neon-su2-center-parity bash tests/arm64-solved-fixtures.sh
@@ -265,7 +265,7 @@ keyhunt-arm64-sha2-neon-su2-center-2048: $(filter-out build/arm64/keyhunt-center
 
 arm64-groups: keyhunt-arm64-sha2-neon-su2-center-512 keyhunt-arm64-sha2-neon-su2-center-2048
 
-arm64-groups-test: arm64-groups arm64-parity arm64-sha2-neon-su2-center
+arm64-groups-test: arm64-groups arm64-parity arm64-sha2-neon-su2-center arm64-parity-groups
 	KEYHUNT_BIN=keyhunt-arm64-sha2-neon-su2-center-512 bash tests/arm64-smoke.sh
 	KEYHUNT_BIN=keyhunt-arm64-sha2-neon-su2-center-2048 bash tests/arm64-smoke.sh
 	python3 tests/arm64-variant-coverage.py
