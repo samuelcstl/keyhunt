@@ -859,6 +859,8 @@ void Int::MontgomeryMult(Int *a, Int *b) {
 extern void field_k1_arm64_mul(uint64_t out[5], const uint64_t a[5],
                                const uint64_t b[5]);
 extern void field_k1_arm64_square(uint64_t out[5], const uint64_t a[5]);
+extern void field_k1_arm64_mul_comba(uint64_t out[5], const uint64_t a[5],
+                                     const uint64_t b[5]);
 #endif
 
 // SecpK1 specific section -----------------------------------------------------------------------------
@@ -893,7 +895,9 @@ static inline void finish_k1_reduction(uint64_t out[5], uint8_t carry) {
 }
 
 void Int::ModMulK1(Int *a, Int *b) {
-#if defined(KEYHUNT_ARM64_FIELD_MUL)
+#if defined(KEYHUNT_ARM64_FIELD_COMBA)
+  field_k1_arm64_mul_comba(bits64, a->bits64, b->bits64);
+#elif defined(KEYHUNT_ARM64_FIELD_MUL)
   field_k1_arm64_mul(bits64, a->bits64, b->bits64);
 #else
 
@@ -959,7 +963,9 @@ void Int::ModMulK1(Int *a, Int *b) {
 }
 
 void Int::ModMulK1(Int *a) {
-#if defined(KEYHUNT_ARM64_FIELD_MUL)
+#if defined(KEYHUNT_ARM64_FIELD_COMBA)
+  field_k1_arm64_mul_comba(bits64, bits64, a->bits64);
+#elif defined(KEYHUNT_ARM64_FIELD_MUL)
   field_k1_arm64_mul(bits64, bits64, a->bits64);
 #else
 
