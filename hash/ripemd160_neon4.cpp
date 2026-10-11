@@ -70,8 +70,8 @@ static inline V gather32(const uint8_t *p0, const uint8_t *p1,
 
 static inline void transform4(const uint8_t *p0, const uint8_t *p1,
                               const uint8_t *p2, const uint8_t *p3,
-                              uint8_t *d0, uint8_t *d1,
-                              uint8_t *d2, uint8_t *d3) {
+                              uint8_t *dst0, uint8_t *dst1,
+                              uint8_t *dst2, uint8_t *dst3) {
   V w[16];
   for (int i=0;i<8;i++) w[i]=gather32(p0,p1,p2,p3,i);
   w[8]=vdupq_n_u32(0x80u);
@@ -262,7 +262,7 @@ static inline void transform4(const uint8_t *p0, const uint8_t *p1,
   vst1q_u32(results[2],out2);
   vst1q_u32(results[3],out3);
   vst1q_u32(results[4],out4);
-  uint8_t *dst[4]={d0,d1,d2,d3};
+  uint8_t *dst[4]={dst0,dst1,dst2,dst3};
   for (int lane=0;lane<4;lane++) {
     const uint32_t words[5]={
       results[0][lane],results[1][lane],results[2][lane],
