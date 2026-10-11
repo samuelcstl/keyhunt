@@ -3,6 +3,7 @@
 **Audited:** 2026-10-11, against [this fork's `keyhunt.cpp`](../keyhunt.cpp), [`secp256k1/Int.cpp`](../secp256k1/Int.cpp), [`Random.cpp`](../secp256k1/Random.cpp), [upstream README](https://github.com/AlbertoBSD/keyhunt/blob/main/README.md) and [BSGSD.md](../BSGSD.md).  
 **Branch:** `perf/pi5-arm64`; **status: research/documentation only**, no new scheduling code, no claim of verified exhaustive coverage.  
 **Companion:** [agent handoff](../docs/AGENT_HANDOFF_PUZZLE71_PI5.md).
+**Production handoff:** [disjoint scheduling, exact range and restart contract](../docs/PRODUCTION_SEARCH_POLICY.md), **not yet implemented**.
 
 ## Executive decision
 
