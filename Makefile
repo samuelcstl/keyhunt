@@ -221,7 +221,7 @@ arm64-sha2-neon-su2-test: arm64-sha2-neon-su2 build/arm64/sha256-su2-selftest
 	KEYHUNT_BIN=keyhunt-arm64-sha2-neon-su2 python3 tests/arm64-vectors.py
 	KEYHUNT_BIN=keyhunt-arm64-sha2-neon-su2 bash tests/arm64-solved-fixtures.sh
 
-arm64-sha2-neon-su2-center-test: arm64-sha2-neon-su2-center
+arm64-sha2-neon-su2-center-test: arm64-sha2-neon-su2 arm64-sha2-neon-su2-center
 	KEYHUNT_BIN=keyhunt-arm64-sha2-neon-su2-center bash tests/arm64-smoke.sh
 	KEYHUNT_BIN=keyhunt-arm64-sha2-neon-su2-center python3 tests/arm64-vectors.py
 	KEYHUNT_BIN=keyhunt-arm64-sha2-neon-su2-center bash tests/arm64-solved-fixtures.sh
