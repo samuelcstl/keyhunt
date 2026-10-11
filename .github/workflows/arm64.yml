@@ -9,7 +9,13 @@ jobs:
     runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v4
+      - name: Install OpenSSL headers
+        run: sudo apt-get update && sudo apt-get install -y libssl-dev
       - name: Build main engine on ARM64
         run: make arm64
       - name: Verify known puzzle solution
         run: make arm64-test
+      - name: Build OpenSSL SHA2 experiment
+        run: make arm64-openssl
+      - name: Verify OpenSSL backend
+        run: make arm64-openssl-test
