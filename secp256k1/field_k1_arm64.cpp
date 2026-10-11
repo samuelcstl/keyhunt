@@ -93,6 +93,158 @@ static inline void product_square(uint64_t t[8], const uint64_t a[5]) {
     }
     t[7] = static_cast<uint64_t>(carry);
 }
+// Column-ordered Comba experiment: each 64-bit product is used once,
+// with no repeated writes of partially accumulated 512-bit limbs.
+// Track carries beyond 128 bits explicitly for middle columns.
+static inline void product_4x4_comba(uint64_t t[8],
+                                      const uint64_t a[5],
+                                      const uint64_t b[5]) {
+    const uint64_t a0 = a[0], b0 = b[0];
+    const uint64_t a1 = a[1], b1 = b[1];
+    const uint64_t a2 = a[2], b2 = b[2];
+    const uint64_t a3 = a[3], b3 = b[3];
+    U128 carry = 0;
+    {
+        U128 sum = carry;
+        uint64_t overflow = 0;
+        {
+            const U128 product = U128(a0) * b0;
+            const U128 previous = sum;
+            sum += product;
+            overflow += sum < previous;
+        }
+        t[0] = static_cast<uint64_t>(sum);
+        carry = (sum >> 64) + (U128(overflow) << 64);
+    }
+    {
+        U128 sum = carry;
+        uint64_t overflow = 0;
+        {
+            const U128 product = U128(a0) * b1;
+            const U128 previous = sum;
+            sum += product;
+            overflow += sum < previous;
+        }
+        {
+            const U128 product = U128(a1) * b0;
+            const U128 previous = sum;
+            sum += product;
+            overflow += sum < previous;
+        }
+        t[1] = static_cast<uint64_t>(sum);
+        carry = (sum >> 64) + (U128(overflow) << 64);
+    }
+    {
+        U128 sum = carry;
+        uint64_t overflow = 0;
+        {
+            const U128 product = U128(a0) * b2;
+            const U128 previous = sum;
+            sum += product;
+            overflow += sum < previous;
+        }
+        {
+            const U128 product = U128(a1) * b1;
+            const U128 previous = sum;
+            sum += product;
+            overflow += sum < previous;
+        }
+        {
+            const U128 product = U128(a2) * b0;
+            const U128 previous = sum;
+            sum += product;
+            overflow += sum < previous;
+        }
+        t[2] = static_cast<uint64_t>(sum);
+        carry = (sum >> 64) + (U128(overflow) << 64);
+    }
+    {
+        U128 sum = carry;
+        uint64_t overflow = 0;
+        {
+            const U128 product = U128(a0) * b3;
+            const U128 previous = sum;
+            sum += product;
+            overflow += sum < previous;
+        }
+        {
+            const U128 product = U128(a1) * b2;
+            const U128 previous = sum;
+            sum += product;
+            overflow += sum < previous;
+        }
+        {
+            const U128 product = U128(a2) * b1;
+            const U128 previous = sum;
+            sum += product;
+            overflow += sum < previous;
+        }
+        {
+            const U128 product = U128(a3) * b0;
+            const U128 previous = sum;
+            sum += product;
+            overflow += sum < previous;
+        }
+        t[3] = static_cast<uint64_t>(sum);
+        carry = (sum >> 64) + (U128(overflow) << 64);
+    }
+    {
+        U128 sum = carry;
+        uint64_t overflow = 0;
+        {
+            const U128 product = U128(a1) * b3;
+            const U128 previous = sum;
+            sum += product;
+            overflow += sum < previous;
+        }
+        {
+            const U128 product = U128(a2) * b2;
+            const U128 previous = sum;
+            sum += product;
+            overflow += sum < previous;
+        }
+        {
+            const U128 product = U128(a3) * b1;
+            const U128 previous = sum;
+            sum += product;
+            overflow += sum < previous;
+        }
+        t[4] = static_cast<uint64_t>(sum);
+        carry = (sum >> 64) + (U128(overflow) << 64);
+    }
+    {
+        U128 sum = carry;
+        uint64_t overflow = 0;
+        {
+            const U128 product = U128(a2) * b3;
+            const U128 previous = sum;
+            sum += product;
+            overflow += sum < previous;
+        }
+        {
+            const U128 product = U128(a3) * b2;
+            const U128 previous = sum;
+            sum += product;
+            overflow += sum < previous;
+        }
+        t[5] = static_cast<uint64_t>(sum);
+        carry = (sum >> 64) + (U128(overflow) << 64);
+    }
+    {
+        U128 sum = carry;
+        uint64_t overflow = 0;
+        {
+            const U128 product = U128(a3) * b3;
+            const U128 previous = sum;
+            sum += product;
+            overflow += sum < previous;
+        }
+        t[6] = static_cast<uint64_t>(sum);
+        carry = (sum >> 64) + (U128(overflow) << 64);
+    }
+    t[7] = static_cast<uint64_t>(carry);
+}
+
 } // namespace
 
 void field_k1_arm64_mul(uint64_t out[5], const uint64_t a[5],
@@ -105,5 +257,13 @@ void field_k1_arm64_mul(uint64_t out[5], const uint64_t a[5],
 void field_k1_arm64_square(uint64_t out[5], const uint64_t a[5]) {
     uint64_t t[8];
     product_square(t, a);
+    reduce_k1(out, t);
+}
+
+// Same canonical reduction and alias semantics as the row-product kernel.
+void field_k1_arm64_mul_comba(uint64_t out[5], const uint64_t a[5],
+                               const uint64_t b[5]) {
+    uint64_t t[8];
+    product_4x4_comba(t, a, b);
     reduce_k1(out, t);
 }
