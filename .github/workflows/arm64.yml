@@ -69,3 +69,10 @@ jobs:
           objdump -d keyhunt-arm64-sha2-neon-su2-center-parity-field-mul | grep -Eq '\bmul\b'
           objdump -d keyhunt-arm64-sha2-neon-su2-center-parity-field-mul | grep -Eq '\bumulh\b'
           bash -n tests/arm64-field-benchmark.sh
+
+      - name: Validate avoidable point arithmetic and one-target Bloom bypass
+        run: make arm64-work-elimination-test
+      - name: Parse repeated Pi A/B and deep-PMU profiling scripts
+        run: |
+          bash -n tests/arm64-work-elimination-bench.sh
+          bash -n tests/arm64-deep-profile.sh
