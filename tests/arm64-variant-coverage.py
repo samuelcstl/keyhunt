@@ -57,10 +57,22 @@ def main():
              "-n","0x400", "-l","compress", "-t","1", "-q","-s","0"]
         result=subprocess.run(cmd,cwd=tmp,text=True,stdout=subprocess.PIPE,
                               stderr=subprocess.STDOUT,timeout=15,check=False)
-        if result.returncode == 0 or "CPU_GRP_SIZE=2048" not in result.stdout:
+        if result.returncode == 0 or "at least 2048 and a multiple of 2048" not in result.stdout:
             raise AssertionError("2048-point binary failed to reject -n 1024"
                                  + result.stdout[-1000:])
     print("PASS: rejects search chunks smaller than ECC group size")
+    # A group-size-512 binary must accept an explicitly requested 512-key
+    # chunk; the old CLI silently replaced -n 512 with a huge default.
+    with tempfile.TemporaryDirectory(prefix="keyhunt-valid-n-") as tmp:
+        cmd=[str(root/names[2]), "-m","address",
+             "-f",str(root/"tests"/"1to32.txt"), "-r","1:4000",
+             "-n","0x200", "-l","compress", "-t","1", "-q","-s","0"]
+        good=subprocess.run(cmd,cwd=tmp,text=True,stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT,timeout=15,check=False)
+        if good.returncode or "N = 0x200" not in good.stdout:
+            raise AssertionError("512-point binary did not accept -n 512"
+                                 + good.stdout[-1000:])
+    print("PASS: 512-point binary accepts exactly-sized -n 512 chunks")
 
 if __name__=="__main__":
     main()
