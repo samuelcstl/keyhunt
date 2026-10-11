@@ -96,7 +96,7 @@ def run_vector(exe, name, key, directory):
 
 
 def main():
-    exe = (Path(__file__).resolve().parent.parent / "keyhunt-arm64").resolve()
+    exe = (Path(__file__).resolve().parent.parent / os.environ.get("KEYHUNT_BIN", "keyhunt-arm64")).resolve()
     if not exe.is_file():
         raise SystemExit("Build keyhunt-arm64 first")
     # Check our independent implementation against the published puzzle #20.
