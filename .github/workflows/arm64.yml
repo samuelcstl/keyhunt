@@ -1,0 +1,15 @@
+name: ARM64 fixed-width engine
+on:
+  push:
+    branches: [perf/pi5-arm64]
+  workflow_dispatch:
+
+jobs:
+  build-and-smoke:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build main engine on ARM64
+        run: make arm64
+      - name: Verify known puzzle solution
+        run: make arm64-test
