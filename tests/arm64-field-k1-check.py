@@ -5,6 +5,7 @@ Covers 0, 1, 2, p-1, p-2, values at word boundaries and deterministic
 high-entropy samples. Test vectors are independent of Keyhunt.
 """
 import random
+import os
 import subprocess
 from pathlib import Path
 
@@ -21,17 +22,21 @@ pairs=[(a,b) for a in edges for b in edges]
 pairs.extend((R.randrange(P),R.randrange(P)) for _ in range(2000))
 lines=[];expected=[]
 for a,b in pairs:
-    lines.append(f"MUL {a:x} {b:x}")
-    expected.append((a*b)%P)
+    for op in ("MUL","MULI","MULA","MULB"):
+        lines.append(f"{op} {a:x} {b:x}")
+        expected.append((a*b)%P)
 for a in edges:
-    lines.append(f"SQR {a:x}")
-    expected.append((a*a)%P)
+    for op in ("SQR","SQRA"):
+        lines.append(f"{op} {a:x}")
+        expected.append((a*a)%P)
 for _ in range(2000):
     a=R.randrange(P)
-    lines.append(f"SQR {a:x}")
-    expected.append((a*a)%P)
+    for op in ("SQR","SQRA"):
+        lines.append(f"{op} {a:x}")
+        expected.append((a*a)%P)
 
-run=subprocess.run([str(ROOT/"build/arm64/field-k1-check")],
+binary=os.environ.get("KEYHUNT_FIELD_CHECK_BIN","build/arm64/field-k1-check")
+run=subprocess.run([str(ROOT/binary)],
     input="\n".join(lines)+"\n",text=True,stdout=subprocess.PIPE,
     stderr=subprocess.PIPE,timeout=60,check=False)
 if run.returncode:
@@ -43,4 +48,4 @@ for i,(actual,want) in enumerate(zip(got,expected)):
     if int(actual,16)!=want:
         raise AssertionError(f"Field test {i} failed: {lines[i]} "
             f"expected={want:x}, got={actual}")
-print(f"PASS: {len(expected)} independent secp256k1 field multiplication/squaring vectors")
+print(f"PASS: {len(expected)} independent secp256k1 field arithmetic/alias vectors on {binary}")
