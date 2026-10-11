@@ -2652,8 +2652,12 @@ void *thread_process(void *vargp)	{
 					_s.ModMulK1(&dy,&dx[i]);        // s = (p2.y-p1.y)*inverse(p2.x-p1.x);
 					_p.ModSquareK1(&_s);            // _p = pow2(s)
 
+					#ifdef KEYHUNT_POINT_ALGEBRA
+					pp.x.ModSub(&_p, &pp.x); // (_p - oldX) mod p
+					#else
 					pp.x.ModNeg();
 					pp.x.ModAdd(&_p);
+					#endif
 					pp.x.ModSub(&Gn[i].x);           // rx = pow2(s) - p1.x - p2.x;
 
 					if(calculate_y)	{
@@ -2669,8 +2673,12 @@ void *thread_process(void *vargp)	{
 
 					_s.ModMulK1(&dyn,&dx[i]);      // s = (p2.y-p1.y)*inverse(p2.x-p1.x);
 					_p.ModSquareK1(&_s);            // _p = pow2(s)
+					#ifdef KEYHUNT_POINT_ALGEBRA
+					pn.x.ModSub(&_p, &pn.x);
+					#else
 					pn.x.ModNeg();
 					pn.x.ModAdd(&_p);
+					#endif
 					pn.x.ModSub(&Gn[i].x);          // rx = pow2(s) - p1.x - p2.x;
 
 					if(calculate_y)	{
@@ -2728,8 +2736,12 @@ void *thread_process(void *vargp)	{
 				_s.ModMulK1(&dyn,&dx[i]);
 				_p.ModSquareK1(&_s);
 
+				#ifdef KEYHUNT_POINT_ALGEBRA
+				pn.x.ModSub(&_p, &pn.x);
+				#else
 				pn.x.ModNeg();
 				pn.x.ModAdd(&_p);
+				#endif
 				pn.x.ModSub(&Gn[i].x);
 				
 				if(calculate_y)	{
@@ -2848,9 +2860,19 @@ secp->GetHash160_fromX(P2PKH,0x02,&pts[(j*4)].x,&pts[(j*4)+1].x,&pts[(j*4)+2].x,
 									if(FLAGSEARCH == SEARCH_COMPRESS || FLAGSEARCH == SEARCH_BOTH){
 										if(FLAGENDOMORPHISM)	{
 											for(l = 0;l < 6; l++)	{
-												r = bloom_check(&bloom,publickeyhashrmd160_endomorphism[l][k],MAXLENGTHADDRESS);
-												if(r) {
-													r = searchbinary(addressTable,publickeyhashrmd160_endomorphism[l][k],N);
+												#ifdef KEYHUNT_SINGLE_TARGET_DIRECT
+												// Exact one-target matching, no Bloom/XXH64 overhead.
+												if (N == 1) {
+													r = memcmp(publickeyhashrmd160_endomorphism[l][k],
+													           addressTable[0].value, 20) == 0;
+												} else
+												#endif
+												{
+													r = bloom_check(&bloom,publickeyhashrmd160_endomorphism[l][k],MAXLENGTHADDRESS);
+													if (r)
+														r = searchbinary(addressTable,publickeyhashrmd160_endomorphism[l][k],N);
+												}
+												if (r) {
 													if(r) {
 														keyfound.SetInt32(k);
 														keyfound.Mult(&stride);
