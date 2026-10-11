@@ -45,7 +45,7 @@ def main():
     with tempfile.TemporaryDirectory(prefix="keyhunt-direct-one-") as td:
         work=Path(td)
         target=work/"target.txt"
-        target.write_text("1HsMJxNiV7TLxmoF6uJNkydxPFDog4NQum\\n")
+        target.write_text("1HsMJxNiV7TLxmoF6uJNkydxPFDog4NQum\n")
         for name in BINARIES[2:]:
             args=[str(ROOT/name),"-m","address","-f",str(target),
                   "-r","80000:100000","-n","0x10000",
@@ -53,7 +53,7 @@ def main():
             p=subprocess.run(args,cwd=work,text=True,stdout=subprocess.PIPE,
                              stderr=subprocess.STDOUT,timeout=45,check=False)
             if p.returncode or "Hit! Private Key: d2c55" not in p.stdout:
-                raise AssertionError(f"{name}: one-target puzzle missed\\n"+p.stdout[-2000:])
+                raise AssertionError(f"{name}: one-target puzzle missed\n"+p.stdout[-2000:])
             if "[I] Direct single-target HASH160 path active" not in p.stdout:
                 raise AssertionError(f"{name}: N==1 optimization not activated")
     print("PASS: N==1 path actually selected and solved puzzle #20")
