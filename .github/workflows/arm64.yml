@@ -63,7 +63,7 @@ jobs:
         run: make arm64-field-test
 
       - name: Test native ARM64 field multiplication and squaring variants
-        run: make arm64-field-variants-test
+        run: make arm64-field-comba-test
       - name: Check native product instructions and benchmark script
         run: |
           objdump -d keyhunt-arm64-sha2-neon-su2-center-parity-field-mul | grep -Eq '\bmul\b'
