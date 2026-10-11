@@ -108,6 +108,7 @@ void sha256sse_2B(uint32_t *i0, uint32_t *i1, uint32_t *i2, uint32_t *i3,
   four(i0, i1, i2, i3, d0, d1, d2, d3, 2);
 }
 
+#ifndef KEYHUNT_NEON_RIPEMD160
 void ripemd160sse_32(uint8_t *i0, uint8_t *i1, uint8_t *i2, uint8_t *i3,
                       uint8_t *d0, uint8_t *d1, uint8_t *d2, uint8_t *d3) {
   ripemd160(i0, 32, d0);
@@ -115,3 +116,4 @@ void ripemd160sse_32(uint8_t *i0, uint8_t *i1, uint8_t *i2, uint8_t *i3,
   ripemd160(i2, 32, d2);
   ripemd160(i3, 32, d3);
 }
+#endif // KEYHUNT_NEON_RIPEMD160
