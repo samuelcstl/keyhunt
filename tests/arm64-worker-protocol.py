@@ -42,12 +42,18 @@ def test():
         ]
         env = os.environ.copy()
         env["KEYHUNT_WORKER_TRACE"] = "1"
-        done = subprocess.run(
-            args, input="\n".join(requests) + "\n",
-            text=True, cwd=work, env=env,
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=60,
-            check=False,
-        )
+        try:
+            done = subprocess.run(
+                args, input="\n".join(requests) + "\n",
+                text=True, cwd=work, env=env,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=20,
+                check=False,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise AssertionError(
+                f"worker hung: stdout={(exc.stdout or b'')[-1500:]!r} "
+                f"stderr={(exc.stderr or b'')[-2500:]!r}"
+            ) from exc
         if done.returncode:
             raise AssertionError(
                 f"worker exited {done.returncode}: {done.stderr[-2500:]}"
