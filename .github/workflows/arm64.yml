@@ -86,7 +86,7 @@ jobs:
     runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v4
-      - name: Build and verify persistent bounded Keyhunt worker
-        run: make arm64-worker-test
       - name: Verify local SQLite controller allocation and crash replay
         run: python3 tests/keypool-controller.py
+      - name: Build and verify persistent bounded Keyhunt worker
+        run: make arm64-worker-test
