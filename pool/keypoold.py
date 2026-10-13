@@ -22,6 +22,15 @@ TARGET = "1PWo3JeB9jrGwfHDNpdGK54CRas7fsVzXU"
 LOWER, UPPER, CHUNK = 1 << 70, 1 << 71, 1 << 20
 COUNT = (UPPER - LOWER) // CHUNK  # 2^50
 ALGO = "feistel50-blake2s-v1"
+# Internal, fixed, solved-puzzle fixture. Never initialized by the public CLI.
+# This seed deliberately puts the known answer in the LAST shuffled chunk,
+# so a complete 64-job run must account for the entire 2^19-key interval.
+FIXTURE_TARGET = "1HsMJxNiV7TLxmoF6uJNkydxPFDog4NQum"
+FIXTURE_LOWER, FIXTURE_UPPER, FIXTURE_CHUNK = 1 << 19, 1 << 20, 1 << 13
+FIXTURE_COUNT = (FIXTURE_UPPER - FIXTURE_LOWER) // FIXTURE_CHUNK
+FIXTURE_BITS = 6
+FIXTURE_ALGO = "feistel6-blake2s-fixture-v1"
+FIXTURE_SEED = "00000000000000000000000000000119"
 DEFAULT_DB = Path.home() / ".local/state/keypool/campaign.sqlite3"
 DEFAULT_TARGET_FILE = (Path.home() / "BITCOIN_ANALYSIS/bitcoin-puzzle"
                        / "runs/bench71/target.txt")
@@ -61,20 +70,51 @@ def load(c: sqlite3.Connection) -> dict:
     if row is None:
         raise RuntimeError("Missing campaign row")
     state = dict(row)
-    if (state["version"] != ALGO or state["target"] != TARGET or
-        state["lower"] != hex(LOWER) or state["upper"] != hex(UPPER) or
-        state["chunk"] != CHUNK or not 0 <= state["next_i"] <= COUNT):
-        raise RuntimeError("Campaign parameters changed: refusing resume")
+    # Exact approved presets only. Preserve the existing #71 DB schema and
+    # algorithm identifier, so current Pi campaign progress stays compatible.
+    config = settings(state)
+    if not 0 <= state["next_i"] <= config["count"]:
+        raise RuntimeError("Invalid campaign cursor")
+    if state["inflight"] is not None and state["inflight"] != state["next_i"]:
+        raise RuntimeError("Invalid in-flight job")
     return state
 
 
-def assert_target(path: Path) -> None:
-    if path.read_text(encoding="ascii").strip() != TARGET:
-        raise RuntimeError("Target file does not contain exactly Puzzle #71")
+def settings(state: dict) -> dict:
+    if state["version"] == ALGO:
+        target, lower, upper, chunk, count, bits = (
+            TARGET, LOWER, UPPER, CHUNK, COUNT, 50)
+    elif state["version"] == FIXTURE_ALGO:
+        target, lower, upper, chunk, count, bits = (
+            FIXTURE_TARGET, FIXTURE_LOWER, FIXTURE_UPPER,
+            FIXTURE_CHUNK, FIXTURE_COUNT, FIXTURE_BITS)
+    else:
+        raise RuntimeError("Unknown campaign version")
+    if (state["target"] != target or state["lower"] != hex(lower) or
+        state["upper"] != hex(upper) or state["chunk"] != chunk):
+        raise RuntimeError("Campaign parameters changed: refusing resume")
+    if len(bytes.fromhex(state["seed"])) != 16:
+        raise RuntimeError("Invalid seed")
+    return dict(target=target, lower=lower, upper=upper,
+                chunk=chunk, count=count, bits=bits)
 
 
-def init(db: Path, target_file: Path) -> None:
-    assert_target(target_file)
+def assert_target(path: Path, target: str = TARGET) -> None:
+    if path.read_text(encoding="ascii").strip() != target:
+        raise RuntimeError("Target file does not match the campaign target")
+
+
+def init(db: Path, target_file: Path, *, fixture: bool = False) -> None:
+    if fixture:
+        if db.resolve() == DEFAULT_DB.resolve():
+            raise RuntimeError("Fixture may not overwrite the real campaign path")
+        target, lower, upper, chunk, version, seed = (
+            FIXTURE_TARGET, FIXTURE_LOWER, FIXTURE_UPPER, FIXTURE_CHUNK,
+            FIXTURE_ALGO, FIXTURE_SEED)
+    else:
+        target, lower, upper, chunk, version, seed = (
+            TARGET, LOWER, UPPER, CHUNK, ALGO, secrets.token_hex(16))
+    assert_target(target_file, target)
     db.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     os.chmod(db.parent, 0o700)
     fd = os.open(db, os.O_CREAT | os.O_EXCL | os.O_RDWR, 0o600)
@@ -92,8 +132,8 @@ def init(db: Path, target_file: Path) -> None:
         c.execute(
             "INSERT INTO campaign(id,version,target,lower,upper,chunk,seed,"
             "next_i,target_file) VALUES (1,?,?,?,?,?,?,0,?)",
-            (ALGO, TARGET, hex(LOWER), hex(UPPER), CHUNK,
-             secrets.token_hex(16), str(target_file.resolve())),
+            (version, target, hex(lower), hex(upper), chunk,
+             seed, str(target_file.resolve())),
         )
     print(f"Initialized private local campaign: {db}")
 
@@ -102,16 +142,17 @@ def status(db: Path) -> None:
     with connect(db) as c:
         s = load(c)
     i = s["next_i"]
+    cfg = settings(s)
     print(json.dumps({
         "target": s["target"], "completed_chunks": i,
-        "unique_completed_keys": str(i * CHUNK),
-        "total_chunks": COUNT, "percent": 100 * i / COUNT,
+        "unique_completed_keys": str(i * cfg["chunk"]),
+        "total_chunks": cfg["count"], "percent": 100 * i / cfg["count"],
         "inflight": s["inflight"], "reissued_assignments": s["reissued"],
         "found": bool(s["found"]),
     }, indent=2))
 
 
-def verify_hit(key_hex: str) -> bool:
+def verify_hit(key_hex: str, target: str = TARGET) -> bool:
     """Independent scalar -> compressed HASH160 -> base58check path."""
     n = int(key_hex, 16)
     order = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141
@@ -158,7 +199,7 @@ def verify_hit(key_hex: str) -> bool:
     while value:
         value, digit = divmod(value, 58)
         encoded = alphabet[digit] + encoded
-    return "1" * (len(raw) - len(raw.lstrip(b"\0"))) + encoded == TARGET
+    return "1" * (len(raw) - len(raw.lstrip(b"\0"))) + encoded == target
 
 
 def save_hit(db: Path, key: str) -> None:
@@ -201,27 +242,33 @@ def run(db: Path, worker: Path, max_jobs: int, timeout: int) -> None:
             if s["found"]:
                 print("Campaign already has a verified match; refusing to search")
                 return
-            assert_target(Path(s["target_file"]))
+            cfg = settings(s)
+            if s["version"] == FIXTURE_ALGO and db.resolve() == DEFAULT_DB.resolve():
+                raise RuntimeError("Fixture campaign cannot run at real campaign path")
+            assert_target(Path(s["target_file"]), cfg["target"])
             if s["inflight"] is not None:
                 c.execute("UPDATE campaign SET reissued=reissued+1 WHERE id=1")
                 c.commit()
             if not worker.is_file():
                 raise RuntimeError(f"Missing worker binary: {worker}")
             seed = bytes.fromhex(s["seed"])
+            lower, chunk, count, bits = (
+                cfg["lower"], cfg["chunk"], cfg["count"], cfg["bits"])
             logfd = os.open(db.parent / "worker.log",
                             os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
             with os.fdopen(logfd, "w") as log:
                 args = [str(worker.resolve()), "-m", "address", "-f",
                         s["target_file"], "-l", "compress", "-t", "4",
-                        "-n", "0x40000", "-q", "-s", "0"]
+                        "-n", hex(min(0x40000, max(1024, chunk // 4))),
+                        "-q", "-s", "0"]
                 proc = subprocess.Popen(args, stdin=subprocess.PIPE,
                                         stdout=subprocess.PIPE, stderr=log,
                                         text=True, bufsize=1)
                 processed = 0
-                while s["next_i"] < COUNT and not SHUTDOWN:
+                while s["next_i"] < count and not SHUTDOWN:
                     i = s["next_i"]
-                    block = permute(i, seed)
-                    lo, hi = LOWER + block * CHUNK, LOWER + (block+1) * CHUNK
+                    block = permute(i, seed, bits)
+                    lo, hi = lower + block * chunk, lower + (block+1) * chunk
                     c.execute("UPDATE campaign SET inflight=? WHERE id=1", (i,))
                     c.commit()  # journal before dispatch, so crash cannot skip
                     job = json.dumps({"id": i, "start": hex(lo),
@@ -235,12 +282,14 @@ def run(db: Path, worker: Path, max_jobs: int, timeout: int) -> None:
                     if not line:
                         raise RuntimeError("Worker ended without completing its job")
                     response = json.loads(line)
-                    if response.get("id") != i or response.get("count") != CHUNK:
+                    if response.get("id") != i or response.get("count") != chunk:
                         raise RuntimeError("Wrong job completion; cursor unchanged")
                     kind = response.get("type")
                     if kind == "hit":
                         secret = response.get("key", "")
-                        if not isinstance(secret, str) or not verify_hit(secret):
+                        if (not isinstance(secret, str) or
+                            not verify_hit(secret, cfg["target"]) or
+                            not lo <= int(secret, 16) < hi):
                             raise RuntimeError("Worker reported an invalid match")
                         save_hit(db, secret)
                     elif kind != "complete":
