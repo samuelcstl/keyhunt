@@ -13,6 +13,7 @@ From the working `perf/pi5-arm64` branch:
 ```bash
 make arm64-worker-test
 python3 tests/keypool-controller.py
+python3 tests/keypool-integration.py
 ```
 
 The worker test scans synthetic bounded ranges and recovers **solved Puzzle #20**. It checks protocol purity, match handling and slice allocation. Controller tests run against a deliberately failing fake worker to prove uncommitted-job replay.
