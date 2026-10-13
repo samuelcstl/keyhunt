@@ -139,11 +139,16 @@ def main():
         # Oracle #3: order of successive jobs observed in worker traces.
         job_ord={block:i for i,block in enumerate(order)}
         observed_order=[]
-        for start, count in slices:
-            block=(start-lower)//chunk
-            job_i=job_ord[block]
-            if not observed_order or observed_order[-1] != job_i:
-                observed_order.append(job_i)
+        for log in logs:
+            # Same job ID appears on either side of a deliberate restart:
+            # suppress duplicate thread slices within each session ONLY.
+            previous=None
+            for start, count in parse([log], SLICE):
+                block=(start-lower)//chunk
+                job_i=job_ord[block]
+                if previous != job_i:
+                    observed_order.append(job_i)
+                    previous=job_i
         assert observed_order == list(range(24))+list(range(23,64)), observed_order
 
         # Hit must be recovered only when last chunk is completed.
