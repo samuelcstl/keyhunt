@@ -92,3 +92,5 @@ jobs:
         run: make arm64-worker-test
       - name: Integrate real worker with SQLite across controller restarts
         run: python3 tests/keypool-integration.py
+      - name: Exhaustively verify Puzzle 20 dispatch, full hash coverage and crash replay
+        run: python3 tests/keypool-puzzle20-exhaustive.py
