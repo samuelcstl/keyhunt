@@ -78,13 +78,13 @@ def standalone(directory, seconds, _jobs):
            "-t", "4", "-q", "-s", "5"]
     with log.open("w") as f:
         proc = subprocess.Popen(cmd, stdout=f, stderr=subprocess.STDOUT,
-                                env=clean_env())
+                                env=clean_env(), cwd=directory)
         try:
             end = time.monotonic() + seconds
             while time.monotonic() < end:
                 if proc.poll() is not None:
                     raise RuntimeError(f"Standalone exited early; see {log}")
-                time.sleep(min(1.0, end - time.monotonic()))
+                time.sleep(max(0.0, min(1.0, end - time.monotonic())))
         finally:
             stop(proc)
     matches = STAT.findall(log.read_text(errors="replace").replace("\r", "\n"))
@@ -106,7 +106,7 @@ def direct_worker(directory, _seconds, jobs):
     with log.open("w") as f:
         proc = subprocess.Popen(worker_args(), stdin=subprocess.PIPE,
                                 stdout=subprocess.PIPE, stderr=f,
-                                text=True, bufsize=1, env=clean_env())
+                                text=True, bufsize=1, env=clean_env(), cwd=directory)
         start = time.perf_counter()
         try:
             for i in range(jobs):
@@ -155,7 +155,7 @@ def sqlite_pool(directory, _seconds, jobs):
     with log.open("w") as f:
         start = time.perf_counter()
         result = subprocess.run(cmd, stdout=f, stderr=subprocess.STDOUT,
-                                env=clean_env())
+                                env=clean_env(), cwd=directory)
         elapsed = time.perf_counter() - start
     if result.returncode:
         raise RuntimeError(f"SQLite Keypool failed; see {log}")
