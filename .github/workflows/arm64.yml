@@ -90,3 +90,5 @@ jobs:
         run: python3 tests/keypool-controller.py
       - name: Build and verify persistent bounded Keyhunt worker
         run: make arm64-worker-test
+      - name: Integrate real worker with SQLite across controller restarts
+        run: python3 tests/keypool-integration.py
