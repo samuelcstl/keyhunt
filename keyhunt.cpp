@@ -437,7 +437,7 @@ static FILE *worker_protocol = nullptr;
 
 static int keyhunt_worker_protocol() {
   const std::regex format(
-    R"(^\s*\{\s*"id"\s*:\s*([0-9]+)\s*,\s*"start"\s*:\s*"(0x[0-9a-fA-F]+)"\s*,\s*"end_exclusive"\s*:\s*"(0x[0-9a-fA-F]+)"\s*\}\s*$)");
+    R"KEYPOOL(^\s*\{\s*"id"\s*:\s*([0-9]+)\s*,\s*"start"\s*:\s*"(0x[0-9a-fA-F]+)"\s*,\s*"end_exclusive"\s*:\s*"(0x[0-9a-fA-F]+)"\s*\}\s*$)KEYPOOL");
   char line[512];
   while (fgets(line, sizeof(line), stdin)) {
     if (!strchr(line, '\n') && !feof(stdin)) {
