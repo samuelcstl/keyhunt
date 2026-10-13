@@ -163,7 +163,13 @@ def verify_hit(key_hex: str) -> bool:
 
 def save_hit(db: Path, key: str) -> None:
     path = db.parent / "FOUND.private"
-    fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    try:
+        fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    except FileExistsError:
+        # A crash after fsync but before the DB commit must be resumable.
+        if path.read_text(encoding="ascii").strip().lower() == key.lower():
+            return
+        raise RuntimeError("Existing hit file differs; stop and inspect locally")
     try:
         with os.fdopen(fd, "w") as f:
             f.write(key + "\n")
@@ -239,12 +245,12 @@ def run(db: Path, worker: Path, max_jobs: int, timeout: int) -> None:
                         save_hit(db, secret)
                     elif kind != "complete":
                         raise RuntimeError("Worker returned non-completion status")
-                    c.execute(
+                    updated = c.execute(
                         "UPDATE campaign SET next_i=?, inflight=NULL, found=? "
                         "WHERE id=1 AND next_i=?",
                         (i + 1, int(kind == "hit"), i),
                     )
-                    if c.total_changes < 1:
+                    if updated.rowcount != 1:
                         raise RuntimeError("Unexpected database cursor")
                     c.commit()
                     s["next_i"] = i + 1
