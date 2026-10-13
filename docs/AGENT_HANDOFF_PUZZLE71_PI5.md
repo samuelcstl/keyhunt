@@ -22,6 +22,15 @@
 - Still pending: independent physical Pi sustained hash-rate comparison, kill/reboot fault injection and prolonged stability. Do not claim production readiness or full scalar-level coverage proofs from unit tests alone; do not merge to main without authorization.
 - This KISS v1 uses single-machine trust and one acknowledgement cursor; it does not implement remote worker proofs, public pool or reward distribution.
 
+## 2026-10-13: exhaustive Puzzle #20 scheduler acceptance
+
+- New isolated test: `python3 tests/keypool-puzzle20-exhaustive.py` (build `keyhunt-worker` first). **GitHub ARM64 CI worker-and-pool job passes.**
+- Uses public solved Puzzle #20 with `[2^19,2^20)`, 64 permuted disjoint chunks of `2^13` keys, a fixed test seed placing known solution `0xd2c55` in the last dispatched chunk.
+- Opt-in `KEYHUNT_WORKER_COVERAGE` emits **post-HASH160** `WORKER_SCANNED` records (1,024 keys/group), test verifies 512 unique groups = 524,288 keys. Worker slice dispatch and full permutation order are also verified, without altering the regular hot loop when trace is disabled.
+- Deliberate interruption **after worker completion and before SQLite commit** forces exactly one chunk replay: 8 groups (8,192 attempted keys), zero other overlaps and no missing coverage. Final checkpoint 64/64; recovered known key independently verified and stored only in private temporary fixture.
+- Fixture state/database is temporary and **cannot use the production default path**. The previously initialized Puzzle #71 SQLite campaign and its `next_i` remain untouched. Production command line still defaults to Puzzle #71.
+- Next gates: run this test on the actual Pi 5, then compare 120-second sustained unique-completion throughput vs the proven ~7.34 Mkeys/s engine, and test SIGKILL/power-loss recovery on a disposable campaign.
+
 ## Validated winner and preserved control
 
 **Current preferred *experimental* binary:**
