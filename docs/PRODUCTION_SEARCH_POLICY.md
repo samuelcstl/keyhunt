@@ -1,6 +1,6 @@
 # Keyhunt production search: KISS v1
 
-**Status:** specification only, not implemented. Updated 2026-10-13.  
+**Status:** experimental KISS v1 implementation in this PR; ARM64 CI checks passing for worker and SQLite crash recovery. Real-worker/controller integration and physical Pi sustained benchmark remain validation gates. Updated 2026-10-13.  
 **Scope:** local Raspberry Pi 5, Bitcoin Puzzle #71; work in [PR #1](https://github.com/samuelcstl/keyhunt/pull/1) only. No merge to `main` or automatic service activation without approval.
 
 ## Goal
@@ -51,7 +51,7 @@ The worker partitions its assigned interval between threads without overlap, sea
 2. **Crash safety:** stop/kill controller and worker before, during and after completion/commit. Assert no lost chunk and at most one replayed chunk; reject a mismatched campaign.
 3. **Performance:** compare sustained four-core Pi 5 end-to-end unique candidates/s against the validated ~7.34 M/s experimental baseline, including controller overhead. Aim for <5% slowdown; measure rather than assume. Preserve the known-good binary for rollback.
 
-Implement in order: bounded persistent worker -> deterministic test order -> seeded permutation and SQLite recovery -> manual service. Keep tests in the same PR. Do not automatically enable the service.
+Implementation: [dedicated worker build](../Makefile) gated by `KEYHUNT_POOL_WORKER`, [local seeded SQLite controller](../pool/keypoold.py), [worker protocol tests](../tests/arm64-worker-protocol.py), [crash-replay tests](../tests/keypool-controller.py), [real-worker integration test](../tests/keypool-integration.py), and [manual run instructions](../pool/README.md). These are experimental; **do not** automatically install or enable a service. Physical Pi performance and prolonged recovery validation remain pending.
 
 ## Explicitly outside v1
 
