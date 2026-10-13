@@ -81,6 +81,11 @@ jobs:
         run: make arm64-neon-target-test
       - name: Validate repeated target-mask A/B benchmark script
         run: bash -n tests/arm64-neon-target-bench.sh
+
+  worker-and-pool:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
       - name: Build and verify persistent bounded Keyhunt worker
         run: make arm64-worker-test
       - name: Verify local SQLite controller allocation and crash replay
