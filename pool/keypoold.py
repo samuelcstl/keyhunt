@@ -294,6 +294,11 @@ def run(db: Path, worker: Path, max_jobs: int, timeout: int) -> None:
                         save_hit(db, secret)
                     elif kind != "complete":
                         raise RuntimeError("Worker returned non-completion status")
+                    # Fixture-only deterministic crash point: worker finished
+                    # but the durable acknowledgement has not been written.
+                    if (s["version"] == FIXTURE_ALGO and
+                        os.environ.get("KEYPOOL_TEST_INTERRUPT_BEFORE_COMMIT") == str(i)):
+                        raise RuntimeError("Injected fixture crash before checkpoint")
                     updated = c.execute(
                         "UPDATE campaign SET next_i=?, inflight=NULL, found=? "
                         "WHERE id=1 AND next_i=?",
