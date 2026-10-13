@@ -2693,6 +2693,12 @@ void *thread_process(void *vargp)	{
 	bool calculate_y = FLAGSEARCH == SEARCH_UNCOMPRESS || FLAGSEARCH == SEARCH_BOTH ||
 		FLAGCRYPTO == CRYPTO_ETH || parity_search;
 	Int key_mpz,keyfound,temp_stride;
+#ifdef KEYHUNT_POOL_WORKER
+  // Diagnostic-only post-hash group trace for exhaustive coverage fixtures.
+  // Never enabled for production throughput measurements.
+  const bool coverage_trace = getenv("KEYHUNT_WORKER_COVERAGE") != nullptr;
+  Int group_start;
+#endif
 	tt = (struct tothread *)vargp;
 	thread_number = tt->nt;
 	free(tt);
@@ -2788,6 +2794,10 @@ void *thread_process(void *vargp)	{
 				}
 			}
 			do {
+#ifdef KEYHUNT_POOL_WORKER
+        if (coverage_trace)
+          group_start.Set(&key_mpz);
+#endif
 #ifdef KEYHUNT_INCREMENTAL_CENTER
 				// At the end of the preceding batch, startP was advanced by
 				// CPU_GRP_SIZE*G. Recomputing its scalar multiple here is redundant.
@@ -3348,6 +3358,16 @@ secp->GetHash160_fromX(P2PKH,0x02,&pts[(j*4)].x,&pts[(j*4)+1].x,&pts[(j*4)+2].x,
 				*/
 
 				steps[thread_number]++;
+#ifdef KEYHUNT_POOL_WORKER
+        // Emit only after the whole four-lane HASH160 group was evaluated.
+        // A test compares these completed group ranges against the full oracle.
+        if (coverage_trace) {
+          char *start_hex = group_start.GetBase16();
+          fprintf(stderr, "WORKER_SCANNED start=%s count=%u\n",
+                  start_hex, unsigned(CPU_GRP_SIZE));
+          free(start_hex);
+        }
+#endif
 
 				// Next start point (startP + GRP_SIZE*G)
 				pp = startP;
