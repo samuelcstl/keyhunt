@@ -44,6 +44,22 @@ python3 pool/keypoold.py status
 
 For subsequent searches, invoke `run` again; the same seed and completion index are retained. Omit `--max-jobs` for continuous scanning after Pi validation. The controller rejects a second instance through a lock.
 
+## Pi 5 isolated throughput A/B/C
+
+Build the existing standalone NEON winner and persistent worker, then run:
+
+```bash
+make arm64-neon-target arm64-worker
+python3 tests/keypool-performance-ab.py --jobs 256 --baseline-seconds 40 --repeats 2
+python3 pool/keypoold.py status
+```
+
+The timed sequence is **standalone NEON -> direct JSON worker -> SQLite Keypool**, then reversed to reduce ordering/thermal bias. Each mode runs the same four-core HASH160 search implementation on the same Puzzle #71 target. Direct-worker and SQLite Keypool use the same `2^20` job size, count completed keys, and measure wall time including dispatch. Standalone is the original `-R` engine using its native five-second throughput counter; it is **not audited unique coverage**. Compare repeat medians, clock and thermal readings before assuming a speed regression is caused by SQLite.
+
+**Isolation:** the script never opens or advances the default `~/.local/state/keypool/campaign.sqlite3`. Each SQLite run uses a new, private diagnostic campaign. All raw logs, `results.tsv`, sensor readings and any found secrets are kept in owner-only directories under `../runs/keypool-performance-ab/`; nothing is deleted automatically. Benchmark chunks do not count toward the durable production campaign, and may overlap past search. No systemd changes or service activation.
+
+Tune duration and sample size with `--baseline-seconds`, `--jobs`, `--repeats`, and `--cooldown`. Do not enable `KEYHUNT_WORKER_TRACE` or `KEYHUNT_WORKER_COVERAGE`; the runner explicitly disables them for its children.
+
 ## Wire contract
 
 Worker executable command (already started by the controller):
