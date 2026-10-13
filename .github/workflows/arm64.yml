@@ -94,3 +94,7 @@ jobs:
         run: python3 tests/keypool-integration.py
       - name: Exhaustively verify Puzzle 20 dispatch, full hash coverage and crash replay
         run: python3 tests/keypool-puzzle20-exhaustive.py
+      - name: Check Pi A/B/C benchmark harness syntax and CLI
+        run: |
+          python3 -m py_compile tests/keypool-performance-ab.py
+          python3 tests/keypool-performance-ab.py --help
