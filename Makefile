@@ -448,3 +448,21 @@ arm64-neon-target-test: arm64-neon-target arm64-work-elimination \
 	KEYHUNT_BIN=keyhunt-arm64-sha2-neon-su2-center-parity-field-point-direct1-neon bash tests/arm64-smoke.sh
 	KEYHUNT_BIN=keyhunt-arm64-sha2-neon-su2-center-parity-field-point-direct1-neon python3 tests/arm64-vectors.py
 	KEYHUNT_BIN=keyhunt-arm64-sha2-neon-su2-center-parity-field-point-direct1-neon bash tests/arm64-solved-fixtures.sh
+
+# KISS v1: production-bound persistent worker is a separate opt-in binary.
+# Reuse the validated NEON ECC/HASH160 objects. No changes to the control.
+.PHONY: arm64-worker arm64-worker-test
+build/arm64/keyhunt-pool-worker.o: keyhunt.cpp
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -DKEYHUNT_INCREMENTAL_CENTER \
+	  -DKEYHUNT_Y_PARITY -DKEYHUNT_POINT_ALGEBRA \
+	  -DKEYHUNT_SINGLE_TARGET_DIRECT -DKEYHUNT_NEON_TARGET_COMPARE \
+	  -DKEYHUNT_POOL_WORKER -c $< -o $@
+
+keyhunt-worker: $(ARM64_FIELD_POINT_COMMON_OBJS) build/arm64/keyhunt-pool-worker.o
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread
+
+arm64-worker: keyhunt-worker
+
+arm64-worker-test: arm64-worker
+	python3 tests/arm64-worker-protocol.py
