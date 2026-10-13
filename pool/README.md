@@ -18,6 +18,19 @@ python3 tests/keypool-integration.py
 
 The worker test scans synthetic bounded ranges and recovers **solved Puzzle #20**. It checks protocol purity, match handling and slice allocation. Controller tests run against a deliberately failing fake worker to prove uncommitted-job replay.
 
+### Full solved-puzzle coverage audit
+
+```bash
+make arm64-worker
+python3 tests/keypool-puzzle20-exhaustive.py
+```
+
+This is deliberately **isolated from the real Puzzle #71 campaign**. It creates and deletes a temporary SQLite database and target file. A fixed 6-bit seeded Feistel permutation dispatches all 64 disjoint 8,192-key chunks of solved Puzzle #20 (`[2^19,2^20)`). The known key is deliberately scheduled for the last chunk so all 524,288 candidate scalars must be processed.
+
+The test captures per-ECC-group trace markers **after the SHA256/RIPEMD160 work**, compares the 512 completed 1,024-key groups with an independent exact-coverage oracle and checks all 256 thread slice assignments. It intentionally interrupts after one complete but **uncommitted** job, then checks that *only that one chunk* is replayed, no other key ranges overlap and the checkpoint ultimately records the solved key. The trace is enabled for this test only and must **not** be used for performance benchmarking.
+
+The test is also part of ARM64 CI. Your existing `~/.local/state/keypool/campaign.sqlite3` cursor, seed and worker logs are untouched.
+
 Only after those tests pass:
 
 ```bash
