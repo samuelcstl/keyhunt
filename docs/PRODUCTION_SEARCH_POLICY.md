@@ -1,6 +1,6 @@
 # Keyhunt production search: KISS v1
 
-**Status:** experimental KISS v1 implementation in this PR; ARM64 CI checks passing for worker and SQLite crash recovery. Real-worker/controller integration and physical Pi sustained benchmark remain validation gates. Updated 2026-10-13.  
+**Status:** experimental KISS v1 implementation in this PR; ARM64 CI passes for worker, SQLite crash recovery and real-worker/controller integration. Physical Pi sustained benchmarking and power-loss recovery remain validation gates. Updated 2026-10-13.  
 **Scope:** local Raspberry Pi 5, Bitcoin Puzzle #71; work in [PR #1](https://github.com/samuelcstl/keyhunt/pull/1) only. No merge to `main` or automatic service activation without approval.
 
 ## Goal
