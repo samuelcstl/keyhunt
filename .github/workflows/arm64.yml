@@ -81,3 +81,5 @@ jobs:
         run: make arm64-neon-target-test
       - name: Validate repeated target-mask A/B benchmark script
         run: bash -n tests/arm64-neon-target-bench.sh
+      - name: Build and verify persistent bounded Keyhunt worker
+        run: make arm64-worker-test
