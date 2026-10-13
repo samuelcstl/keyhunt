@@ -10,7 +10,7 @@
 
 1. **[Upstream modes and search-space audit](../research/2026-10-11-keyhunt-modes-and-search-space.md)**: verified CLI semantics, applicability of modes/options, #71 mathematical range, randomness/overlap and prioritised coverage tests.
 2. **[Pi5 architectural audit](../research/2026-10-11-pi5-architectural-audit.md)**: current code review of redundant stride multiplications, generator-Y negations, zero-match per-lane loops, cache/branch questions.
-3. **[Production search policy](PRODUCTION_SEARCH_POLICY.md)**: production-grade 2^50-chunk disjoint allocation, randomized permutation, restart/checkpoint guarantees, range tests, RNG risk and operational roadmap.
+3. **[Production search KISS v1 spec](PRODUCTION_SEARCH_POLICY.md)**: one local controller and persistent worker; 2^50 disjoint scrambled chunks, one SQLite ordinal, bounded crash replay and minimal tests. Keep distributed-pool complexity outside v1.
 4. **[GPU code comparison](../research/2026-10-11-gpu-source-audit.md)**: what transferred from CUDA implementations and what remains GPU-specific.
 5. Upstream [README](../README.md), [Makefile](../Makefile), [keyhunt.cpp](../keyhunt.cpp), [SHA2 backend](../hash/hash4_arm_sha2_su2.cpp), [NEON RIPEMD160](../hash/ripemd160_neon4.cpp), [AArch64 field kernel](../secp256k1/field_k1_arm64.cpp). The upstream README is general-purpose and may describe **different performance metrics** or retired options; trust current source and tests for this branch.
 
