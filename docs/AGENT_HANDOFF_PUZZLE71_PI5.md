@@ -1,6 +1,6 @@
 # Agent handoff: Pi 5 Bitcoin Puzzle #71 Keyhunt
 
-**Updated:** 2026-10-11 (Europe/Paris)  
+**Updated:** 2026-10-13 (Europe/Paris)  
 **Working branch:** `perf/pi5-arm64` in [samuelcstl/keyhunt](https://github.com/samuelcstl/keyhunt), [PR #1](https://github.com/samuelcstl/keyhunt/pull/1). **Do not merge to `main` without user approval.**  
 **Last source snapshot before this handoff:** `d2a5a30d5ca1c88caad279f34bffd3acc4eb5761`; use `git rev-parse HEAD` for actual current head.  
 **Upstream:** [AlbertoBSD/keyhunt](https://github.com/albertobsd/keyhunt), main branch. The substantial ARM64 search changes and benchmarks are in this fork, not upstream.  
@@ -13,6 +13,14 @@
 3. **[Production search KISS v1 spec](PRODUCTION_SEARCH_POLICY.md)**: one local controller and persistent worker; 2^50 disjoint scrambled chunks, one SQLite ordinal, bounded crash replay and minimal tests. Keep distributed-pool complexity outside v1.
 4. **[GPU code comparison](../research/2026-10-11-gpu-source-audit.md)**: what transferred from CUDA implementations and what remains GPU-specific.
 5. Upstream [README](../README.md), [Makefile](../Makefile), [keyhunt.cpp](../keyhunt.cpp), [SHA2 backend](../hash/hash4_arm_sha2_su2.cpp), [NEON RIPEMD160](../hash/ripemd160_neon4.cpp), [AArch64 field kernel](../secp256k1/field_k1_arm64.cpp). The upstream README is general-purpose and may describe **different performance metrics** or retired options; trust current source and tests for this branch.
+
+## Production Keypool KISS v1 (new, experimental)
+
+- Implemented in this PR: `keyhunt-worker` (persistent four-core NEON worker with strict job bounds), `pool/keypoold.py` (one locally locked SQLite campaign, seeded Feistel 50-bit permutation, one in-flight 2^20-key job), `pool/README.md` (manual test/runbook), optional disabled user-service template.
+- GitHub Actions worker-and-pool job on commit `0a46f35394e793f724e67b78fa4312756d85f48c` **passed** worker unit/protocol tests, fake-worker crash replay, and real worker/controller four-job integration with SQLite resume across sessions.
+- On Pi, validate with `make arm64-worker-test && python3 tests/keypool-controller.py && python3 tests/keypool-integration.py`. No service installation or auto-start. First real campaign run, once user approves and checks puzzle status: `python3 pool/keypoold.py init`, then `python3 pool/keypoold.py run --max-jobs 8`. Maintain low priority and record logs.
+- Still pending: independent physical Pi sustained hash-rate comparison, kill/reboot fault injection and prolonged stability. Do not claim production readiness or full scalar-level coverage proofs from unit tests alone; do not merge to main without authorization.
+- This KISS v1 uses single-machine trust and one acknowledgement cursor; it does not implement remote worker proofs, public pool or reward distribution.
 
 ## Validated winner and preserved control
 
