@@ -3370,8 +3370,8 @@ secp->GetHash160_fromX(P2PKH,0x02,&pts[(j*4)].x,&pts[(j*4)+1].x,&pts[(j*4)+2].x,
 	} while(continue_flag);
 #ifdef KEYHUNT_POOL_WORKER
     pthread_mutex_lock(&worker_mutex);
-    ++worker_completed;
-    pthread_cond_signal(&worker_cond);
+    if (++worker_completed == NTHREADS)
+      pthread_cond_broadcast(&worker_cond); // other idle workers may share this condition
     pthread_mutex_unlock(&worker_mutex);
   }
 #else
