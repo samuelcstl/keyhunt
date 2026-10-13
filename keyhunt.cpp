@@ -11,6 +11,10 @@ email: albertobsd@gmail.com
 #include <time.h>
 #include <vector>
 #include <inttypes.h>
+#ifdef KEYHUNT_POOL_WORKER
+#include <regex>
+#include <string>
+#endif
 #include "base58/libbase58.h"
 #include "rmd160/rmd160.h"
 #include "oldbloom/oldbloom.h"
@@ -417,7 +421,109 @@ Int lambda,lambda2,beta,beta2;
 
 Secp256K1 *secp;
 
+#ifdef KEYHUNT_POOL_WORKER
+// Dedicated local worker: no public interface, no changes to legacy binaries.
+#if defined(_WIN64) && !defined(__CYGWIN__)
+#error KEYHUNT_POOL_WORKER is POSIX-only
+#endif
+static pthread_mutex_t worker_mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t worker_cond = PTHREAD_COND_INITIALIZER;
+static unsigned long worker_generation = 0;
+static int worker_completed = 0;
+static bool worker_shutdown = false;
+static bool worker_hit = false;
+static std::string worker_hit_key;
+static FILE *worker_protocol = nullptr;
+
+static int keyhunt_worker_protocol() {
+  const std::regex format(
+    R"(^\s*\{\s*"id"\s*:\s*([0-9]+)\s*,\s*"start"\s*:\s*"(0x[0-9a-fA-F]+)"\s*,\s*"end_exclusive"\s*:\s*"(0x[0-9a-fA-F]+)"\s*\}\s*$)");
+  char line[512];
+  while (fgets(line, sizeof(line), stdin)) {
+    if (!strchr(line, '\n') && !feof(stdin)) {
+      int ch;
+      while ((ch = fgetc(stdin)) != '\n' && ch != EOF) {}
+      fprintf(worker_protocol, "{\"type\":\"error\",\"reason\":\"line too long\"}\n");
+      fflush(worker_protocol);
+      continue;
+    }
+    std::cmatch m;
+    if (!std::regex_match(line, m, format)) {
+      fprintf(worker_protocol, "{\"type\":\"error\",\"reason\":\"invalid job\"}\n");
+      fflush(worker_protocol);
+      continue;
+    }
+    const std::string id = m[1].str();
+    const std::string from = m[2].str().substr(2);
+    const std::string to = m[3].str().substr(2);
+    Int lo, hi, span, cap;
+    lo.SetBase16((char *)from.c_str());
+    hi.SetBase16((char *)to.c_str());
+    span.Set(&hi);
+    if (lo.IsZero() || !lo.IsLower(&hi) || !hi.IsLowerOrEqual(&secp->order)) {
+      fprintf(worker_protocol, "{\"type\":\"error\",\"reason\":\"invalid bounds\"}\n");
+      fflush(worker_protocol);
+      continue;
+    }
+    span.Sub(&lo);
+    cap.SetInt32(0x100000);
+    if (span.IsGreater(&cap) || span.GetInt64() % CPU_GRP_SIZE != 0) {
+      fprintf(worker_protocol, "{\"type\":\"error\",\"reason\":\"job must be group-aligned and <= 2^20 keys\"}\n");
+      fflush(worker_protocol);
+      continue;
+    }
+    const uint64_t expected = span.GetInt64();
+    pthread_mutex_lock(&worker_mutex);
+    n_range_start.Set(&lo);
+    n_range_end.Set(&hi);
+    worker_completed = 0;
+    worker_hit = false;
+    worker_hit_key.clear();
+    ++worker_generation;
+    pthread_cond_broadcast(&worker_cond);
+    while (worker_completed < NTHREADS)
+      pthread_cond_wait(&worker_cond, &worker_mutex);
+    const bool hit = worker_hit;
+    const std::string key = worker_hit_key;
+    pthread_mutex_unlock(&worker_mutex);
+    if (hit)
+      fprintf(worker_protocol,
+        "{\"type\":\"hit\",\"id\":%s,\"count\":%" PRIu64 ",\"key\":\"0x%s\"}\n",
+        id.c_str(), expected, key.c_str());
+    else
+      fprintf(worker_protocol,
+        "{\"type\":\"complete\",\"id\":%s,\"count\":%" PRIu64 "}\n",
+        id.c_str(), expected);
+    if (fflush(worker_protocol) != 0)
+      break;
+    if (hit)
+      break;
+  }
+  pthread_mutex_lock(&worker_mutex);
+  worker_shutdown = true;
+  pthread_cond_broadcast(&worker_cond);
+  pthread_mutex_unlock(&worker_mutex);
+  for (int j = 0; j < NTHREADS; ++j)
+    pthread_join(tid[j], nullptr);
+  return ferror(stdin) || ferror(worker_protocol) ? EXIT_FAILURE : EXIT_SUCCESS;
+}
+#endif
+
 int main(int argc, char **argv)	{
+#ifdef KEYHUNT_POOL_WORKER
+  int original_stdout = dup(STDOUT_FILENO);
+  if (original_stdout < 0 || dup2(STDERR_FILENO, STDOUT_FILENO) < 0) {
+    perror("worker stdio");
+    return EXIT_FAILURE;
+  }
+  worker_protocol = fdopen(original_stdout, "w");
+  if (!worker_protocol) {
+    perror("worker protocol");
+    return EXIT_FAILURE;
+  }
+  setvbuf(stdout, nullptr, _IONBF, 0);
+  setvbuf(worker_protocol, nullptr, _IOLBF, 0);
+#endif
 	char buffer[2048];
 	char rawvalue[32];
 	struct tothread *tt;	//tothread
@@ -2101,6 +2207,21 @@ int main(int argc, char **argv)	{
 		}
 		free(aux);
 	}
+
+#ifdef KEYHUNT_POOL_WORKER
+  if (FLAGMODE != MODE_ADDRESS || FLAGCRYPTO != CRYPTO_BTC ||
+      FLAGSEARCH != SEARCH_COMPRESS || FLAGENDOMORPHISM || FLAGRANDOM ||
+      !stride.IsEqual(&ONE) || N != 1 || FLAGRANGE || FLAGBITRANGE) {
+    fprintf(stderr, "[E] worker requires one BTC address, compressed, stride 1, no -R/-r/-b/-e\n");
+    return EXIT_FAILURE;
+  }
+  if (!FLAG_N)
+    N_SEQUENTIAL_MAX = 0x40000;
+  if (N_SEQUENTIAL_MAX > 0x100000 || N_SEQUENTIAL_MAX % CPU_GRP_SIZE != 0) {
+    fprintf(stderr, "[E] invalid worker slice (-n)\n");
+    return EXIT_FAILURE;
+  }
+#endif
 	if(FLAGMODE != MODE_BSGS)	{
 		steps = (uint64_t *) calloc(NTHREADS,sizeof(uint64_t));
 		checkpointer((void *)steps,__FILE__,"calloc","steps" ,__LINE__ -1 );
@@ -2152,6 +2273,9 @@ int main(int argc, char **argv)	{
 		}
 	}
 	
+#ifdef KEYHUNT_POOL_WORKER
+  return keyhunt_worker_protocol();
+#endif
 	for(j =0; j < 7; j++)	{
 		int_limits[j].SetBase10((char*)str_limits[j]);
 	}
@@ -2582,8 +2706,38 @@ void *thread_process(void *vargp)	{
 		fprintf(stderr,"[I] Four-lane NEON target comparison active\n");
 #endif
 	grp->Set(dx);
+#ifdef KEYHUNT_POOL_WORKER
+  unsigned long seen_generation = 0;
+  for (;;) {
+    pthread_mutex_lock(&worker_mutex);
+    while (!worker_shutdown && worker_generation == seen_generation)
+      pthread_cond_wait(&worker_cond, &worker_mutex);
+    if (worker_shutdown) {
+      pthread_mutex_unlock(&worker_mutex);
+      break;
+    }
+    seen_generation = worker_generation;
+    pthread_mutex_unlock(&worker_mutex);
+    continue_flag = 1;
+#endif
 			
 	do {
+    uint64_t assigned_count = N_SEQUENTIAL_MAX;
+#ifdef KEYHUNT_POOL_WORKER
+    pthread_mutex_lock(&write_random);
+    if (n_range_start.IsLower(&n_range_end)) {
+      key_mpz.Set(&n_range_start);
+      Int remaining;
+      remaining.Set(&n_range_end);
+      remaining.Sub(&n_range_start);
+      assigned_count = remaining.GetInt64() < N_SEQUENTIAL_MAX
+        ? remaining.GetInt64() : N_SEQUENTIAL_MAX;
+      n_range_start.Add(assigned_count);
+    } else {
+      continue_flag = 0;
+    }
+    pthread_mutex_unlock(&write_random);
+#else
 		if(FLAGRANDOM){
 			key_mpz.Rand(&n_range_start,&n_range_end);
 		}
@@ -2605,7 +2759,15 @@ void *thread_process(void *vargp)	{
 				continue_flag = 0;
 			}
 		}
+#endif
 		if(continue_flag)	{
+#ifdef KEYHUNT_POOL_WORKER
+      if (getenv("KEYHUNT_WORKER_TRACE")) {
+        char *start_hex = key_mpz.GetBase16();
+        fprintf(stderr, "WORKER_SLICE start=%s count=%" PRIu64 "\n", start_hex, assigned_count);
+        free(start_hex);
+      }
+#endif
 #ifdef KEYHUNT_INCREMENTAL_CENTER
 			bool center_ready = false; // Fresh start for every assigned sequential/random chunk.
 #endif
@@ -3203,10 +3365,19 @@ secp->GetHash160_fromX(P2PKH,0x02,&pts[(j*4)].x,&pts[(j*4)+1].x,&pts[(j*4)+2].x,
 				pp.y.ModMulK1(&_s);
 				pp.y.ModSub(&_2Gn.y);
 				startP = pp;
-			}while(count < N_SEQUENTIAL_MAX && continue_flag);
+			}while(count < assigned_count && continue_flag);
 		}
 	} while(continue_flag);
+#ifdef KEYHUNT_POOL_WORKER
+    pthread_mutex_lock(&worker_mutex);
+    ++worker_completed;
+    pthread_cond_signal(&worker_cond);
+    pthread_mutex_unlock(&worker_mutex);
+  }
+#else
 	ends[thread_number] = 1;
+#endif
+  delete grp;
 	return NULL;
 }
 
@@ -6099,6 +6270,28 @@ void checkpointer(void *ptr,const char *file,const char *function,const  char *n
 }
 
 void writekey(bool compressed,Int *key)	{
+#ifdef KEYHUNT_POOL_WORKER
+  if (!compressed) {
+    fprintf(stderr, "[E] worker received an uncompressed hit\n");
+    exit(EXIT_FAILURE);
+  }
+  Point verified_point = secp->ComputePublicKey(key);
+  unsigned char verified_hash[20];
+  secp->GetHash160(P2PKH, true, verified_point, verified_hash);
+  if (memcmp(verified_hash, addressTable[0].value, 20) != 0) {
+    fprintf(stderr, "[E] worker hit verification failed\n");
+    exit(EXIT_FAILURE);
+  }
+  char *hex = key->GetBase16();
+  pthread_mutex_lock(&worker_mutex);
+  if (!worker_hit) {
+    worker_hit_key = hex;
+    worker_hit = true;
+  }
+  pthread_mutex_unlock(&worker_mutex);
+  free(hex);
+  return;
+#endif
 	Point publickey;
 	FILE *keys;
 	char *hextemp,*hexrmd,public_key_hex[132],address[50],rmdhash[20];
