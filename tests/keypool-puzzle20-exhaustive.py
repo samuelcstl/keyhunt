@@ -140,15 +140,16 @@ def main():
         job_ord={block:i for i,block in enumerate(order)}
         observed_order=[]
         for log in logs:
-            # Same job ID appears on either side of a deliberate restart:
-            # suppress duplicate thread slices within each session ONLY.
-            previous=None
+            # Each slice is claimed atomically, but worker threads can finish
+            # slices from adjacent chunks in interleaved order. Assert first
+            # appearance per job per session; do not reconstruct a barrier.
+            seen=set()
             for start, count in parse([log], SLICE):
                 block=(start-lower)//chunk
                 job_i=job_ord[block]
-                if previous != job_i:
+                if job_i not in seen:
                     observed_order.append(job_i)
-                    previous=job_i
+                    seen.add(job_i)
         assert observed_order == list(range(24))+list(range(23,64)), observed_order
 
         # Hit must be recovered only when last chunk is completed.
