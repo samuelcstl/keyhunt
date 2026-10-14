@@ -84,6 +84,8 @@ stdout, one line per response:
 
 A verified match produces `type=hit` and a private key field on the **local pipe**. The controller independently verifies the compressed address before storing `FOUND.private` with `0600` permissions. Never forward this response into general logs. Other startup diagnostics and optional allocation traces go to stderr. `KEYHUNT_WORKER_TRACE=1` is for tests only.
 
+For the complete production gates, private claim workflow, dashboard, external coverage strategy and evidence-driven acceleration program, see [the October 14 roadmap](../docs/ROADMAP_PRODUCTION_AND_RESEARCH_2026-10-14.md).
+
 ## Limitations and gates
 
 - No production guarantee before CI and physical Pi validation. Source-level range allocation traces establish slice partitioning; cryptographic hit tests and crash-injection tests are mandatory checks, not substitutes for exhaustive independent scalar traces on tiny intervals.
