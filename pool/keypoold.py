@@ -231,7 +231,7 @@ def terminate_on_signal(_signum, _frame):
 def read_worker_reply(proc, pending_bytes: bytearray, timeout: int) -> dict:
     """Read one complete JSON line, including lines already buffered locally."""
     deadline = time.monotonic() + timeout
-    while b"\\n" not in pending_bytes:
+    while b"\n" not in pending_bytes:
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             raise RuntimeError("Worker timed out; in-flight jobs remain uncommitted")
@@ -244,7 +244,7 @@ def read_worker_reply(proc, pending_bytes: bytearray, timeout: int) -> dict:
         pending_bytes.extend(piece)
         if len(pending_bytes) > 16384:
             raise RuntimeError("Worker protocol response too long")
-    line, _, tail = pending_bytes.partition(b"\\n")
+    line, _, tail = pending_bytes.partition(b"\n")
     pending_bytes[:] = tail
     return json.loads(line.decode("ascii"))
 
@@ -315,7 +315,7 @@ def run(db: Path, worker: Path, max_jobs: int, timeout: int,
                         job = json.dumps({"id": send_i, "start": hex(lo),
                                           "end_exclusive": hex(hi)},
                                          separators=(",", ":"))
-                        proc.stdin.write((job + "\\n").encode("ascii"))
+                        proc.stdin.write((job + "\n").encode("ascii"))
                         pending.append((send_i, lo, hi))
                         send_i += 1
                     if not pending:
