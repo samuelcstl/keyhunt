@@ -16,11 +16,18 @@
 
 ## Production Keypool KISS v1 (new, experimental)
 
-- Implemented in this PR: `keyhunt-worker` (persistent four-core NEON worker with strict job bounds), `pool/keypoold.py` (one locally locked SQLite campaign, seeded Feistel 50-bit permutation, one in-flight 2^20-key job), `pool/README.md` (manual test/runbook), optional disabled user-service template.
+- Implemented in this PR: `keyhunt-worker` (four continuous NEON hashing threads, bounded four-job queue and asynchronous ordered result reporting), `pool/keypoold.py` (one locally locked SQLite campaign, seeded Feistel 50-bit permutation and up to four prefetched 2^20-key jobs), `pool/README.md` (manual test/runbook), optional disabled user-service template.
 - GitHub Actions worker-and-pool job on commit `0a46f35394e793f724e67b78fa4312756d85f48c` **passed** worker unit/protocol tests, fake-worker crash replay, and real worker/controller four-job integration with SQLite resume across sessions.
 - On Pi, validate with `make arm64-worker-test && python3 tests/keypool-controller.py && python3 tests/keypool-integration.py`. No service installation or auto-start. First real campaign run, once user approves and checks puzzle status: `python3 pool/keypoold.py init`, then `python3 pool/keypoold.py run --max-jobs 8`. Maintain low priority and record logs.
 - Still pending: independent physical Pi sustained hash-rate comparison, kill/reboot fault injection and prolonged stability. Do not claim production readiness or full scalar-level coverage proofs from unit tests alone; do not merge to main without authorization.
 - This KISS v1 uses single-machine trust and one acknowledgement cursor; it does not implement remote worker proofs, public pool or reward distribution.
+
+## 2026-10-14: continuous four-job pipeline redesign
+
+- Prior Oct 13/14 physical Pi A/B/C results: standalone median 7.34M / 7.27M candidates/s, direct worker 7.10M / 7.01M, SQLite Keypool 6.31M / 6.46M. Pipeline, not a missing NEON optimization, accounted for the slowdown.
+- New draft redesign: four producer-prefetched jobs, C++ four-slot FIFO, four independent slice claimers, separate ordered reporter, no per-job cryptographic thread barrier, one SQLite commit per completed job. A crash may replay a bounded window of at most four jobs; durable cursor and permutation remain unchanged. Existing Puzzle #71 database is compatible.
+- ARM64 CI: worker protocol + known Puzzle #20 hit, fake-worker crash/restart, real-worker SQLite sessions, exhaustive post-HASH160 Puzzle #20 coverage and controlled precommit failure passed. Actual Pi speed impact not measured yet.
+- Benchmark `tests/keypool-performance-ab.py` compares standalone vs **pipelined direct worker** vs **pipelined SQLite Keypool**, using separate diagnostic campaign DBs. Do not enable continuous service without physical Pi revalidation.
 
 ## 2026-10-13: exhaustive Puzzle #20 scheduler acceptance
 
