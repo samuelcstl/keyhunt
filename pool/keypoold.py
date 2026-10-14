@@ -344,7 +344,8 @@ def run(db: Path, worker: Path, max_jobs: int, timeout: int,
                     processed += 1
                     # One transaction records completion AND reserves the
                     # next uncommitted job, regardless of speculative work.
-                    next_inflight = (next_i if (next_i < limit and kind != "hit")
+                    next_inflight = (next_i if (next_i < limit and kind != "hit"
+                                                and (not SHUTDOWN or pending))
                                      else None)
                     updated = c.execute(
                         "UPDATE campaign SET next_i=?, inflight=?, found=? "
