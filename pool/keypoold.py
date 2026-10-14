@@ -13,6 +13,7 @@ import os
 from pathlib import Path
 import secrets
 import select
+import time
 import signal
 import sqlite3
 import subprocess
@@ -227,7 +228,31 @@ def terminate_on_signal(_signum, _frame):
     SHUTDOWN = True
 
 
-def run(db: Path, worker: Path, max_jobs: int, timeout: int) -> None:
+def read_worker_reply(proc, pending_bytes: bytearray, timeout: int) -> dict:
+    """Read one complete JSON line, including lines already buffered locally."""
+    deadline = time.monotonic() + timeout
+    while b"\\n" not in pending_bytes:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise RuntimeError("Worker timed out; in-flight jobs remain uncommitted")
+        ready, _, _ = select.select([proc.stdout], [], [], remaining)
+        if not ready:
+            raise RuntimeError("Worker timed out; in-flight jobs remain uncommitted")
+        piece = os.read(proc.stdout.fileno(), 4096)
+        if not piece:
+            raise RuntimeError("Worker ended with uncommitted jobs")
+        pending_bytes.extend(piece)
+        if len(pending_bytes) > 16384:
+            raise RuntimeError("Worker protocol response too long")
+    line, _, tail = pending_bytes.partition(b"\\n")
+    pending_bytes[:] = tail
+    return json.loads(line.decode("ascii"))
+
+
+def run(db: Path, worker: Path, max_jobs: int, timeout: int,
+        window: int = 4) -> None:
+    if not 1 <= window <= 4:
+        raise ValueError("Worker prefetch window must be 1..4")
     db.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     lockfd = os.open(str(db) + ".lock", os.O_CREAT | os.O_RDWR, 0o600)
     try:
@@ -246,14 +271,18 @@ def run(db: Path, worker: Path, max_jobs: int, timeout: int) -> None:
             if s["version"] == FIXTURE_ALGO and db.resolve() == DEFAULT_DB.resolve():
                 raise RuntimeError("Fixture campaign cannot run at real campaign path")
             assert_target(Path(s["target_file"]), cfg["target"])
-            if s["inflight"] is not None:
-                c.execute("UPDATE campaign SET reissued=reissued+1 WHERE id=1")
-                c.commit()
             if not worker.is_file():
                 raise RuntimeError(f"Missing worker binary: {worker}")
+            if s["inflight"] is not None:
+                # Recovery count counts interrupted runs, not duplicate keys.
+                # Up to 'window' prefetched jobs may be repeated after a crash.
+                c.execute("UPDATE campaign SET reissued=reissued+1 WHERE id=1")
+                c.commit()
             seed = bytes.fromhex(s["seed"])
             lower, chunk, count, bits = (
                 cfg["lower"], cfg["chunk"], cfg["count"], cfg["bits"])
+            limit = (count if max_jobs == 0
+                     else min(count, s["next_i"] + max_jobs))
             logfd = os.open(db.parent / "worker.log",
                             os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
             with os.fdopen(logfd, "w") as log:
@@ -263,30 +292,37 @@ def run(db: Path, worker: Path, max_jobs: int, timeout: int) -> None:
                         "-q", "-s", "0"]
                 proc = subprocess.Popen(args, stdin=subprocess.PIPE,
                                         stdout=subprocess.PIPE, stderr=log,
-                                        text=True, bufsize=1)
+                                        bufsize=0)
                 processed = 0
-                while s["next_i"] < count and not SHUTDOWN:
-                    i = s["next_i"]
-                    block = permute(i, seed, bits)
-                    lo, hi = lower + block * chunk, lower + (block+1) * chunk
-                    # First assignment needs its own durable reservation.
-                    # Subsequent assignments were reserved by the previous
-                    # job's checkpoint transaction (one commit per job).
-                    if s["inflight"] != i:
-                        c.execute("UPDATE campaign SET inflight=? WHERE id=1", (i,))
-                        c.commit()
-                        s["inflight"] = i
-                    job = json.dumps({"id": i, "start": hex(lo),
-                                      "end_exclusive": hex(hi)}, separators=(",", ":"))
-                    proc.stdin.write(job + "\n")
-                    proc.stdin.flush()
-                    readable, _, _ = select.select([proc.stdout], [], [], timeout)
-                    if not readable:
-                        raise RuntimeError("Worker timed out; job remains uncommitted")
-                    line = proc.stdout.readline()
-                    if not line:
-                        raise RuntimeError("Worker ended without completing its job")
-                    response = json.loads(line)
+                send_i = s["next_i"]
+                pending = []
+                response_buffer = bytearray()
+                if send_i < limit and s["inflight"] is None:
+                    c.execute("UPDATE campaign SET inflight=? WHERE id=1",
+                              (send_i,))
+                    c.commit()
+                    s["inflight"] = send_i
+
+                while not SHUTDOWN or pending:
+                    # Keep the engine's four CPU threads fed while SQLite
+                    # processes earlier acknowledgements. Speculative jobs
+                    # do not advance the durable completion cursor.
+                    while (not SHUTDOWN and len(pending) < window
+                           and send_i < limit):
+                        block = permute(send_i, seed, bits)
+                        lo = lower + block * chunk
+                        hi = lo + chunk
+                        job = json.dumps({"id": send_i, "start": hex(lo),
+                                          "end_exclusive": hex(hi)},
+                                         separators=(",", ":"))
+                        proc.stdin.write((job + "\\n").encode("ascii"))
+                        pending.append((send_i, lo, hi))
+                        send_i += 1
+                    if not pending:
+                        break
+
+                    i, lo, hi = pending.pop(0)
+                    response = read_worker_reply(proc, response_buffer, timeout)
                     if response.get("id") != i or response.get("count") != chunk:
                         raise RuntimeError("Wrong job completion; cursor unchanged")
                     kind = response.get("type")
@@ -299,20 +335,17 @@ def run(db: Path, worker: Path, max_jobs: int, timeout: int) -> None:
                         save_hit(db, secret)
                     elif kind != "complete":
                         raise RuntimeError("Worker returned non-completion status")
-                    # Fixture-only deterministic crash point: worker finished
-                    # but the durable acknowledgement has not been written.
+
                     if (s["version"] == FIXTURE_ALGO and
                         os.environ.get("KEYPOOL_TEST_INTERRUPT_BEFORE_COMMIT") == str(i)):
                         raise RuntimeError("Injected fixture crash before checkpoint")
+
                     next_i = i + 1
-                    processed_next = processed + 1
-                    # Reserve the next job in the SAME durable transaction
-                    # that acknowledges this one. On crash, next_i still
-                    # identifies exactly the first uncommitted job.
-                    continue_run = (kind != "hit" and next_i < count and
-                                    not SHUTDOWN and
-                                    (not max_jobs or processed_next < max_jobs))
-                    next_inflight = next_i if continue_run else None
+                    processed += 1
+                    # One transaction records completion AND reserves the
+                    # next uncommitted job, regardless of speculative work.
+                    next_inflight = (next_i if (next_i < limit and kind != "hit")
+                                     else None)
                     updated = c.execute(
                         "UPDATE campaign SET next_i=?, inflight=?, found=? "
                         "WHERE id=1 AND next_i=? AND inflight=?",
@@ -323,16 +356,12 @@ def run(db: Path, worker: Path, max_jobs: int, timeout: int) -> None:
                     c.commit()
                     s["next_i"] = next_i
                     s["inflight"] = next_inflight
-                    processed = processed_next
-                    # Fixture-only test: simulate power loss after the
-                    # checkpoint and NEXT reservation were durably committed,
-                    # but before the next job was actually sent.
-                    if (s["version"] == FIXTURE_ALGO and continue_run and
+
+                    if (s["version"] == FIXTURE_ALGO and next_inflight is not None and
                         os.environ.get("KEYPOOL_TEST_INTERRUPT_AFTER_COMMIT") == str(i)):
                         raise RuntimeError("Injected fixture crash after checkpoint")
+
                     if kind == "hit":
-                        break
-                    if max_jobs and processed >= max_jobs:
                         break
                 print(f"Completed {processed} jobs in this session; cursor={s['next_i']}")
     finally:
@@ -359,6 +388,7 @@ def main():
     parser.add_argument("--worker", type=Path, default=DEFAULT_WORKER)
     parser.add_argument("--max-jobs", type=int, default=0)
     parser.add_argument("--timeout", type=int, default=300)
+    parser.add_argument("--window", type=int, default=4)
     args = parser.parse_args()
     try:
         if args.max_jobs < 0 or args.timeout < 1:
@@ -370,7 +400,7 @@ def main():
         else:
             signal.signal(signal.SIGTERM, terminate_on_signal)
             signal.signal(signal.SIGINT, terminate_on_signal)
-            run(args.db, args.worker, args.max_jobs, args.timeout)
+            run(args.db, args.worker, args.max_jobs, args.timeout, args.window)
     except (OSError, RuntimeError, ValueError, sqlite3.Error) as exc:
         print(f"keypool: {exc}", file=sys.stderr)
         return 1
