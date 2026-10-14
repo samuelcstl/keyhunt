@@ -22,11 +22,20 @@
 - Still pending: independent physical Pi sustained hash-rate comparison, kill/reboot fault injection and prolonged stability. Do not claim production readiness or full scalar-level coverage proofs from unit tests alone; do not merge to main without authorization.
 - This KISS v1 uses single-machine trust and one acknowledgement cursor; it does not implement remote worker proofs, public pool or reward distribution.
 
+## 2026-10-14: Pi 5 sustained four-job pipeline benchmark PASS
+
+- Physical Pi 5 uncontended run: `nice -n 15 python3 tests/keypool-performance-ab.py --jobs 512 --baseline-seconds 60 --repeats 2 --cooldown 10`. Run records on Pi only: `runs/keypool-performance-ab/20261014T190140Z-3023756`.
+- Two-repetition medians, four cores: standalone **7.342 Mkeys/s**, pipelined direct worker **7.336 Mkeys/s**, full SQLite Keypool **7.291 Mkeys/s**. Direct vs standalone **-0.1%**; SQLite vs direct **-0.6%**; SQLite vs standalone **-0.7%**, comfortably meeting the <5% throughput overhead acceptance target. Individual full Keypool runs **7.281** and **7.301 Mkeys/s**, each completing **512 × 2^20 = 536,870,912** committed keys in its own diagnostic campaign.
+- The preceding high-load ~4.9 Mkeys/s session was environmental: an independent standalone run under low contention again measured ~7.317 Mkeys/s; the user suspects a concurrent FirLab build runner. This is consistent with contention, though the culprit was not independently established.
+- End-of-run Pi thermal snapshots ~59–62°C, 2.4 GHz under load and `get_throttled=0x0`. No reported thermal/power throttling in measurements.
+- **No production scan occurred during the benchmark.** Default Puzzle #71 campaign remains at **520 chunks = 545,259,520 committed keys**, `inflight=null`, `recovery_restarts=0`, `found=false`. Nothing auto-started.
+- **Conclusion:** performance and bounded pipeline architecture are validated on actual Pi 5. Remaining production gates: real signal/kill/reboot recovery with disposable DB, disabled-by-default systemd start/stop/soak, heartbeat/health, hit notification, secure regtest-tested claim pathway and read-only mobile status. Do **not** conflate successful benchmark with unattended-production certification.
+
 ## 2026-10-14: continuous four-job pipeline redesign
 
 - Prior Oct 13/14 physical Pi A/B/C results: standalone median 7.34M / 7.27M candidates/s, direct worker 7.10M / 7.01M, SQLite Keypool 6.31M / 6.46M. Pipeline, not a missing NEON optimization, accounted for the slowdown.
 - New draft redesign: four producer-prefetched jobs, C++ four-slot FIFO, four independent slice claimers, separate ordered reporter, no per-job cryptographic thread barrier, one SQLite commit per completed job. A crash may replay a bounded window of at most four jobs; durable cursor and permutation remain unchanged. Existing Puzzle #71 database is compatible.
-- ARM64 CI: worker protocol + known Puzzle #20 hit, fake-worker crash/restart, real-worker SQLite sessions, exhaustive post-HASH160 Puzzle #20 coverage and controlled precommit failure passed. Actual Pi speed impact not measured yet.
+- ARM64 CI: worker protocol + known Puzzle #20 hit, fake-worker crash/restart, real-worker SQLite sessions, exhaustive post-HASH160 Puzzle #20 coverage and controlled precommit failure passed. Pi throughput impact measured separately above.
 - Benchmark `tests/keypool-performance-ab.py` compares standalone vs **pipelined direct worker** vs **pipelined SQLite Keypool**, using separate diagnostic campaign DBs. Do not enable continuous service without physical Pi revalidation.
 
 ## 2026-10-13: exhaustive Puzzle #20 scheduler acceptance
