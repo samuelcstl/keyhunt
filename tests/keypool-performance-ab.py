@@ -100,40 +100,39 @@ def standalone(directory, seconds, _jobs):
 
 
 def direct_worker(directory, _seconds, jobs):
+    """Four-job pipelined worker with no database, matching Keypool's queue."""
     log = directory / "worker.log"
     seed = secrets.token_bytes(16)
-    count = 0
+    sent = completed = 0
+    buffer = bytearray()
     with log.open("w") as f:
         proc = subprocess.Popen(worker_args(), stdin=subprocess.PIPE,
                                 stdout=subprocess.PIPE, stderr=f,
-                                text=True, bufsize=1, env=clean_env(), cwd=directory)
+                                bufsize=0, env=clean_env(), cwd=directory)
         start = time.perf_counter()
         try:
-            for i in range(jobs):
-                block = pool.permute(i, seed)
-                lo = pool.LOWER + block * pool.CHUNK
-                job = {"id": i, "start": hex(lo),
-                       "end_exclusive": hex(lo + pool.CHUNK)}
-                proc.stdin.write(json.dumps(job, separators=(",", ":")) + "\n")
-                proc.stdin.flush()
-                ready, _, _ = select.select([proc.stdout], [], [], 60)
-                if not ready:
-                    raise RuntimeError(f"Direct worker timed out on job {i}")
-                line = proc.stdout.readline()
-                if not line:
-                    raise RuntimeError(f"Direct worker exited on job {i}")
-                response = json.loads(line)
-                if response.get("id") != i or response.get("count") != pool.CHUNK:
-                    raise RuntimeError(f"Invalid completion for direct job {i}")
+            while completed < jobs:
+                while sent < jobs and sent - completed < 4:
+                    block = pool.permute(sent, seed)
+                    lo = pool.LOWER + block * pool.CHUNK
+                    job = {"id": sent, "start": hex(lo),
+                           "end_exclusive": hex(lo + pool.CHUNK)}
+                    proc.stdin.write((json.dumps(job, separators=(",", ":")) +
+                                      chr(10)).encode("ascii"))
+                    sent += 1
+                response = pool.read_worker_reply(proc, buffer, 60)
+                if (response.get("id") != completed or
+                    response.get("count") != pool.CHUNK):
+                    raise RuntimeError(f"Invalid completion for direct job {completed}")
                 if response.get("type") == "hit":
                     key = response.get("key", "")
                     if not isinstance(key, str) or not pool.verify_hit(key):
                         raise RuntimeError("Invalid reported direct-worker match")
-                    (directory / "FOUND.private").write_text(key + "\n")
+                    (directory / "FOUND.private").write_text(key + chr(10))
                     raise RuntimeError(f"Verified match preserved at {directory}/FOUND.private")
                 if response.get("type") != "complete":
-                    raise RuntimeError(f"Unexpected worker response on job {i}")
-                count += pool.CHUNK
+                    raise RuntimeError(f"Unexpected worker response on job {completed}")
+                completed += 1
             elapsed = time.perf_counter() - start
             proc.stdin.close()
             rc = proc.wait(timeout=10)
@@ -141,8 +140,9 @@ def direct_worker(directory, _seconds, jobs):
                 raise RuntimeError(f"Direct worker exit={rc}; see {log}")
         finally:
             stop(proc)
+    count = completed * pool.CHUNK
     return {"keys": count, "elapsed": elapsed,
-            "rate": count / elapsed / 1e6, "detail": "acks / wall-clock"}
+            "rate": count / elapsed / 1e6, "detail": "four-job pipelined acks / wall-clock"}
 
 
 def sqlite_pool(directory, _seconds, jobs):
@@ -196,7 +196,7 @@ def main():
         ("sqlite-pool", sqlite_pool),
     ]
     print(f"Output: {folder}", flush=True)
-    print("Standalone: legacy -R, native counter; other modes: completed jobs / wall time.")
+    print("Standalone: legacy -R, native counter; other modes: four-job pipelined completed work / wall time.")
     print("These are diagnostic runs; production Puzzle 71 cursor is NOT advanced.", flush=True)
     for rep in range(args.repeats):
         order = variants if rep % 2 == 0 else list(reversed(variants))
