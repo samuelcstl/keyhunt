@@ -5,7 +5,7 @@
 
 ## Actual baseline and invariants
 
-- Four-core standalone NEON engine: **7.337 M scalar attempts/s (not globally deduplicated with standalone random mode)**, sustained twice on Pi 5 (October 11). A later diagnostic during idle Pi conditions again observed ~7.317 M/s (October 14). The pipelined Keypool A/B/C test after fixing background CPU contention remains to be run.
+- Four-core standalone NEON engine: **7.337 M scalar attempts/s (not globally deduplicated with standalone random mode)**, sustained twice on Pi 5 (October 11). A later diagnostic during idle Pi conditions again observed ~7.317 M/s (October 14). The new four-job pipeline has since **passed** the physical Pi A/B/C gate: standalone **7.342M**, direct worker **7.336M**, SQLite Keypool **7.291M** candidates/s (medians of two trials), a **0.7%** full-pipeline penalty. Full results are in the [agent handoff](AGENT_HANDOFF_PUZZLE71_PI5.md).
 - Verified existing Puzzle #71 campaign: **520 completed chunks**, **545,259,520 unique completed keys**, **0 recorded recovery restarts**, **no hit** at October 14 test. Preserve its SQLite DB, Feistel seed, immutable config and ordinal cursor; never rerun `init` to resume.
 - Domain `[2^70,2^71)`, chunk `2^20`, `2^50` chunks, scrambled by bijective seeded Feistel; within chunk, scalar step 1, true compressed Y parity. **Disjoint internally** does not mean disjoint against other miners.
 - Four-job C++ bounded queue, continuous four-thread slice claims, ordered results, SQLite checkpoint; at most four uncommitted prefetched jobs may replay after a crash. Both single-window and four-window interrupted Puzzle #20 exhaustive coverage cases passed GitHub ARM64 and actual Pi testing, as of October 14.
@@ -16,7 +16,7 @@
 
 | Deliverable | Current state | Acceptance |
 |---|---|---|
-| Pipeline sustained speed | Unconfirmed at normal idle Pi load | Repeat 512-job 60s A/B/C benchmark, log environment, compare SQLite end-to-end completed keys/s to standalone; target <5% slowdown |
+| Pipeline sustained speed | **PASS on Pi, 2026-10-14** | Four-core A/B/C 512-job/2-repeat median: standalone 7.342M, direct worker 7.336M, SQLite Keypool 7.291M candidates/s; **0.7% overhead vs <5% target**, ~59–62°C, 2.4 GHz, no reported throttling |
 | Crash/reboot correctness | Synthetic/fault-injection passed, Pi reboot/power loss not tested | On disposable DB test SIGINT, SIGTERM, SIGKILL, worker death, restart and full reboot at 1/4-job windows. Never lose or count uncommitted work; document maximum replay |
 | Stable disabled-by-default user service | Example `pool/keypoold.service.example`, not tested live | Install only by explicit action; verify manual start/stop/status, clean shutdown, watchdog/restarts, process group cleanup, idle scheduling, log bounds, no orphan worker, and behavior after reboot with service still disabled |
 | Real-time process health | DB `status` provides only cursor/inflight/found/restart count | Lightweight local read-only heartbeat: controller alive, worker PID, last completed job timestamp, 1m/15m/24h *unique completed* keys/s, committed/queued work, stall/timeout and last error, temperature/frequency and remaining disk |
@@ -79,7 +79,7 @@ Reuse the Pi's existing Grafana + InfluxDB installation where useful, or a light
 
 ## Suggested execution order
 
-1. Finish 512-job uncontended benchmark; fix any uncovered throughput gap.
+1. **DONE (2026-10-14):** 512-job uncontended A/B/C comparison validates ~0.7% full pipeline overhead. Preserve this as throughput baseline and avoid needless scheduler changes.
 2. Implement safe hit alert + local heartbeat and crash-tested disabled service. Begin monitored real #71 run; no unexpected service autoenable.
 3. Prepare and regtest the transaction signing/claim path in parallel, prioritizing reliable ownership of any reward.
 4. Add phone-friendly dashboard from existing Pi Grafana/Influx setup; read-only via private access.
