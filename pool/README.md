@@ -2,8 +2,8 @@
 
 Local Puzzle #71 search controller. **Nothing is installed or started by cloning/building.**
 
-- `keyhunt-worker`: dedicated ARM64/NEON executable, one persistent process, four CPU threads, exact bounded jobs over stdin/stdout JSON.
-- `pool/keypoold.py`: one seeded 50-bit Feistel schedule and **one SQLite campaign row**. One job in flight; acknowledgement advances the cursor atomically. A crash replays at most that job.
+- `keyhunt-worker`: four persistent ARM64/NEON hashing threads continuously claim disjoint slices from a **four-job FIFO**. A separate reader accepts future jobs while a separate reporter sends ordered completions.
+- `pool/keypoold.py`: seeded 50-bit Feistel schedule, **one SQLite campaign row**, and up to four prefetched jobs (`--window 1..4`, default 4). Worker hashing does not wait for SQLite; only successfully acknowledged jobs advance the durable cursor. A crash can replay up to the bounded window (maximum four chunks), never skip committed work.
 - No API, network listeners, untrusted workers, payouts, GPU support or dashboards. The legacy Keyhunt binaries remain intact.
 
 ## Pi 5 first check
@@ -27,7 +27,7 @@ python3 tests/keypool-puzzle20-exhaustive.py
 
 This is deliberately **isolated from the real Puzzle #71 campaign**. It creates and deletes a temporary SQLite database and target file. A fixed 6-bit seeded Feistel permutation dispatches all 64 disjoint 8,192-key chunks of solved Puzzle #20 (`[2^19,2^20)`). The known key is deliberately scheduled for the last chunk so all 524,288 candidate scalars must be processed.
 
-The test captures per-ECC-group trace markers **after the SHA256/RIPEMD160 work**, compares the 512 completed 1,024-key groups with an independent exact-coverage oracle and checks all 256 thread slice assignments. It intentionally interrupts after one complete but **uncommitted** job, then checks that *only that one chunk* is replayed, no other key ranges overlap and the checkpoint ultimately records the solved key. The trace is enabled for this test only and must **not** be used for performance benchmarking.
+The test captures per-ECC-group trace markers **after the SHA256/RIPEMD160 work**, compares the 512 completed 1,024-key groups with an independent exact-coverage oracle and checks all 256 thread slice assignments. It intentionally interrupts after one complete but **uncommitted** job in a one-job fixture and verifies precisely one replay; the default four-job pipeline also runs between those sessions. With pipelining, adjacent jobs' slice traces can interleave without duplicating work. The trace is enabled for this test only and must **not** be used for performance benchmarking.
 
 The test is also part of ARM64 CI. Your existing `~/.local/state/keypool/campaign.sqlite3` cursor, seed and worker logs are untouched.
 
@@ -54,7 +54,7 @@ python3 tests/keypool-performance-ab.py --jobs 256 --baseline-seconds 40 --repea
 python3 pool/keypoold.py status
 ```
 
-The timed sequence is **standalone NEON -> direct JSON worker -> SQLite Keypool**, then reversed to reduce ordering/thermal bias. Each mode runs the same four-core HASH160 search implementation on the same Puzzle #71 target. Direct-worker and SQLite Keypool use the same `2^20` job size, count completed keys, and measure wall time including dispatch. Standalone is the original `-R` engine using its native five-second throughput counter; it is **not audited unique coverage**. Compare repeat medians, clock and thermal readings before assuming a speed regression is caused by SQLite.
+The timed sequence is **standalone NEON -> four-job pipelined direct JSON worker -> four-job pipelined SQLite Keypool**, then reversed to reduce ordering/thermal bias. Each mode runs the same four-core HASH160 search implementation on the same Puzzle #71 target. Direct-worker and SQLite Keypool use the same `2^20` job size, count completed keys, and measure wall time including dispatch. Standalone is the original `-R` engine using its native five-second throughput counter; it is **not audited unique coverage**. Compare repeat medians, clock and thermal readings before assuming a speed regression is caused by SQLite.
 
 **Isolation:** the script never opens or advances the default `~/.local/state/keypool/campaign.sqlite3`. Each SQLite run uses a new, private diagnostic campaign. All raw logs, `results.tsv`, sensor readings and any found secrets are kept in owner-only directories under `../runs/keypool-performance-ab/`; nothing is deleted automatically. Benchmark chunks do not count toward the durable production campaign, and may overlap past search. No systemd changes or service activation.
 
@@ -74,6 +74,8 @@ stdin, one line per job, hex interval end **exclusive**:
 {"id":7,"start":"0xd0000","end_exclusive":"0xe0000"}
 ```
 
+The reader accepts up to four jobs before waiting for space. Worker threads claim their next available slice without waiting for earlier job acknowledgments. The reporter emits **ordered** responses after all slices belonging to a job complete.
+
 stdout, one line per response:
 
 ```json
@@ -85,6 +87,7 @@ A verified match produces `type=hit` and a private key field on the **local pipe
 ## Limitations and gates
 
 - No production guarantee before CI and physical Pi validation. Source-level range allocation traces establish slice partitioning; cryptographic hit tests and crash-injection tests are mandatory checks, not substitutes for exhaustive independent scalar traces on tiny intervals.
+- After a crash, up to four prefetched chunks may be repeated. The `reissued` database counter counts restarts with uncommitted work, **not** exact duplicated jobs or scalars.
 - SQLite confirms completed **jobs**, assuming the local validated worker scans every assigned scalar. It is not proof-of-work against a dishonest remote worker.
 - Owner must check whether #71 is still unsolved and whether its public key remains unknown before prolonged execution.
 - Existing `-R` research searches are **not** incorporated into this campaign ledger. No retroactive unique-coverage claim.
