@@ -426,19 +426,119 @@ Secp256K1 *secp;
 #if defined(_WIN64) && !defined(__CYGWIN__)
 #error KEYHUNT_POOL_WORKER is POSIX-only
 #endif
+// The controller may prefetch up to four chunks. Cryptographic workers
+// claim bounded slices across chunk boundaries without job-wide barriers.
+// One reader enqueues; one independent writer publishes ordered completions.
+static constexpr size_t WORKER_WINDOW = 4;
+struct WorkerJob {
+  uint64_t id = 0;
+  uint64_t count = 0, claimed = 0, done = 0;
+  Int lo;
+  bool hit = false;
+  std::string hit_key;
+};
+static WorkerJob worker_jobs[WORKER_WINDOW];
 static pthread_mutex_t worker_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t worker_cond = PTHREAD_COND_INITIALIZER;
-static unsigned long worker_generation = 0;
-static int worker_completed = 0;
-static bool worker_shutdown = false;
-static bool worker_hit = false;
-static std::string worker_hit_key;
+static uint64_t worker_head = 0, worker_tail = 0;
+static bool worker_eof = false, worker_shutdown = false;
+static bool worker_io_failed = false;
 static FILE *worker_protocol = nullptr;
+static thread_local uint64_t worker_current_seq = UINT64_MAX;
+
+// Serialized only when acquiring/finishing a 262144-key slice, never during
+// the optimized secp256k1/SHA256/RIPEMD160 hot loop.
+static bool worker_claim(Int *start, uint64_t *count, uint64_t *seq) {
+  pthread_mutex_lock(&worker_mutex);
+  for (;;) {
+    if (worker_shutdown) {
+      pthread_mutex_unlock(&worker_mutex);
+      return false;
+    }
+    for (uint64_t j = worker_head; j < worker_tail; ++j) {
+      WorkerJob &job = worker_jobs[j % WORKER_WINDOW];
+      if (job.claimed >= job.count)
+        continue;
+      uint64_t span = job.count - job.claimed;
+      *count = span < N_SEQUENTIAL_MAX ? span : N_SEQUENTIAL_MAX;
+      start->Set(&job.lo);
+      start->Add(job.claimed);
+      job.claimed += *count;
+      *seq = j;
+      pthread_mutex_unlock(&worker_mutex);
+      return true;
+    }
+    if (worker_eof) {
+      pthread_mutex_unlock(&worker_mutex);
+      return false;
+    }
+    pthread_cond_wait(&worker_cond, &worker_mutex);
+  }
+}
+
+static void worker_finish(uint64_t seq, uint64_t count) {
+  pthread_mutex_lock(&worker_mutex);
+  WorkerJob &job = worker_jobs[seq % WORKER_WINDOW];
+  job.done += count;
+  if (job.done == job.count)
+    pthread_cond_broadcast(&worker_cond);
+  pthread_mutex_unlock(&worker_mutex);
+}
+
+static void *worker_reporter(void *) {
+  pthread_mutex_lock(&worker_mutex);
+  for (;;) {
+    while (!worker_shutdown && worker_head == worker_tail && !worker_eof)
+      pthread_cond_wait(&worker_cond, &worker_mutex);
+    if (worker_shutdown || (worker_eof && worker_head == worker_tail))
+      break;
+    WorkerJob &job = worker_jobs[worker_head % WORKER_WINDOW];
+    while (!worker_shutdown && job.done < job.count)
+      pthread_cond_wait(&worker_cond, &worker_mutex);
+    if (worker_shutdown)
+      break;
+    // All producers have finished this slot; safe to copy and recycle it.
+    const uint64_t id = job.id, count = job.count;
+    const bool hit = job.hit;
+    const std::string key = job.hit_key;
+    ++worker_head;
+    pthread_cond_broadcast(&worker_cond);
+    pthread_mutex_unlock(&worker_mutex);
+    if (hit)
+      fprintf(worker_protocol,
+        "{\"type\":\"hit\",\"id\":%" PRIu64 ",\"count\":%" PRIu64 ",\"key\":\"0x%s\"}\n",
+        id, count, key.c_str());
+    else
+      fprintf(worker_protocol,
+        "{\"type\":\"complete\",\"id\":%" PRIu64 ",\"count\":%" PRIu64 "}\n",
+        id, count);
+    if (fflush(worker_protocol) != 0) {
+      pthread_mutex_lock(&worker_mutex);
+      worker_io_failed = true;
+      worker_shutdown = true;
+      pthread_cond_broadcast(&worker_cond);
+      break;
+    }
+    pthread_mutex_lock(&worker_mutex);
+    if (hit) {
+      worker_shutdown = true;
+      pthread_cond_broadcast(&worker_cond);
+      break;
+    }
+  }
+  pthread_mutex_unlock(&worker_mutex);
+  return nullptr;
+}
 
 static int keyhunt_worker_protocol() {
+  pthread_t reporter;
+  if (pthread_create(&reporter, nullptr, worker_reporter, nullptr))
+    return EXIT_FAILURE;
   const std::regex format(
     R"KEYPOOL(^\s*\{\s*"id"\s*:\s*([0-9]+)\s*,\s*"start"\s*:\s*"(0x[0-9a-fA-F]+)"\s*,\s*"end_exclusive"\s*:\s*"(0x[0-9a-fA-F]+)"\s*\}\s*$)KEYPOOL");
   char line[512];
+  uint64_t previous_id = 0;
+  bool have_previous = false;
   while (fgets(line, sizeof(line), stdin)) {
     if (!strchr(line, '\n') && !feof(stdin)) {
       int ch;
@@ -453,7 +553,15 @@ static int keyhunt_worker_protocol() {
       fflush(worker_protocol);
       continue;
     }
-    const std::string id = m[1].str();
+    const std::string id_str = m[1].str();
+    uint64_t id = 0;
+    try {
+      id = std::stoull(id_str);
+    } catch (...) {
+      fprintf(worker_protocol, "{\"type\":\"error\",\"reason\":\"invalid id\"}\n");
+      fflush(worker_protocol);
+      continue;
+    }
     const std::string from = m[2].str().substr(2);
     const std::string to = m[3].str().substr(2);
     Int lo, hi, span, cap;
@@ -472,40 +580,44 @@ static int keyhunt_worker_protocol() {
       fflush(worker_protocol);
       continue;
     }
-    const uint64_t expected = span.GetInt64();
+    if (have_previous && id != previous_id + 1) {
+      fprintf(worker_protocol, "{\"type\":\"error\",\"reason\":\"nonsequential id\"}\n");
+      fflush(worker_protocol);
+      continue;
+    }
     pthread_mutex_lock(&worker_mutex);
-    n_range_start.Set(&lo);
-    n_range_end.Set(&hi);
-    worker_completed = 0;
-    worker_hit = false;
-    worker_hit_key.clear();
-    ++worker_generation;
-    pthread_cond_broadcast(&worker_cond);
-    while (worker_completed < NTHREADS)
+    while (!worker_shutdown && worker_tail - worker_head >= WORKER_WINDOW)
       pthread_cond_wait(&worker_cond, &worker_mutex);
-    const bool hit = worker_hit;
-    const std::string key = worker_hit_key;
+    if (worker_shutdown) {
+      pthread_mutex_unlock(&worker_mutex);
+      break;
+    }
+    WorkerJob &job = worker_jobs[worker_tail % WORKER_WINDOW];
+    job.id = id;
+    job.lo.Set(&lo);
+    job.count = span.GetInt64();
+    job.claimed = job.done = 0;
+    job.hit = false;
+    job.hit_key.clear();
+    ++worker_tail;
+    pthread_cond_broadcast(&worker_cond);
     pthread_mutex_unlock(&worker_mutex);
-    if (hit)
-      fprintf(worker_protocol,
-        "{\"type\":\"hit\",\"id\":%s,\"count\":%" PRIu64 ",\"key\":\"0x%s\"}\n",
-        id.c_str(), expected, key.c_str());
-    else
-      fprintf(worker_protocol,
-        "{\"type\":\"complete\",\"id\":%s,\"count\":%" PRIu64 "}\n",
-        id.c_str(), expected);
-    if (fflush(worker_protocol) != 0)
-      break;
-    if (hit)
-      break;
+    previous_id = id;
+    have_previous = true;
   }
+  pthread_mutex_lock(&worker_mutex);
+  worker_eof = true;
+  pthread_cond_broadcast(&worker_cond);
+  pthread_mutex_unlock(&worker_mutex);
+  pthread_join(reporter, nullptr);
   pthread_mutex_lock(&worker_mutex);
   worker_shutdown = true;
   pthread_cond_broadcast(&worker_cond);
   pthread_mutex_unlock(&worker_mutex);
   for (int j = 0; j < NTHREADS; ++j)
     pthread_join(tid[j], nullptr);
-  return ferror(stdin) || ferror(worker_protocol) ? EXIT_FAILURE : EXIT_SUCCESS;
+  return worker_io_failed || ferror(stdin) || ferror(worker_protocol)
+    ? EXIT_FAILURE : EXIT_SUCCESS;
 }
 #endif
 
@@ -2713,36 +2825,19 @@ void *thread_process(void *vargp)	{
 #endif
 	grp->Set(dx);
 #ifdef KEYHUNT_POOL_WORKER
-  unsigned long seen_generation = 0;
   for (;;) {
-    pthread_mutex_lock(&worker_mutex);
-    while (!worker_shutdown && worker_generation == seen_generation)
-      pthread_cond_wait(&worker_cond, &worker_mutex);
-    if (worker_shutdown) {
-      pthread_mutex_unlock(&worker_mutex);
+    uint64_t worker_seq = UINT64_MAX;
+    uint64_t worker_span = 0;
+    if (!worker_claim(&key_mpz, &worker_span, &worker_seq))
       break;
-    }
-    seen_generation = worker_generation;
-    pthread_mutex_unlock(&worker_mutex);
+    worker_current_seq = worker_seq;
     continue_flag = 1;
 #endif
 			
 	do {
     uint64_t assigned_count = N_SEQUENTIAL_MAX;
 #ifdef KEYHUNT_POOL_WORKER
-    pthread_mutex_lock(&write_random);
-    if (n_range_start.IsLower(&n_range_end)) {
-      key_mpz.Set(&n_range_start);
-      Int remaining;
-      remaining.Set(&n_range_end);
-      remaining.Sub(&n_range_start);
-      assigned_count = remaining.GetInt64() < N_SEQUENTIAL_MAX
-        ? remaining.GetInt64() : N_SEQUENTIAL_MAX;
-      n_range_start.Add(assigned_count);
-    } else {
-      continue_flag = 0;
-    }
-    pthread_mutex_unlock(&write_random);
+    assigned_count = worker_span;
 #else
 		if(FLAGRANDOM){
 			key_mpz.Rand(&n_range_start,&n_range_end);
@@ -3389,10 +3484,8 @@ secp->GetHash160_fromX(P2PKH,0x02,&pts[(j*4)].x,&pts[(j*4)+1].x,&pts[(j*4)+2].x,
 		}
 	} while(continue_flag);
 #ifdef KEYHUNT_POOL_WORKER
-    pthread_mutex_lock(&worker_mutex);
-    if (++worker_completed == NTHREADS)
-      pthread_cond_broadcast(&worker_cond); // other idle workers may share this condition
-    pthread_mutex_unlock(&worker_mutex);
+    worker_finish(worker_seq, worker_span);
+    worker_current_seq = UINT64_MAX;
   }
 #else
 	ends[thread_number] = 1;
@@ -6304,9 +6397,14 @@ void writekey(bool compressed,Int *key)	{
   }
   char *hex = key->GetBase16();
   pthread_mutex_lock(&worker_mutex);
-  if (!worker_hit) {
-    worker_hit_key = hex;
-    worker_hit = true;
+  if (worker_current_seq == UINT64_MAX) {
+    fprintf(stderr, "[E] worker hit without active slice\n");
+    exit(EXIT_FAILURE);
+  }
+  WorkerJob &active = worker_jobs[worker_current_seq % WORKER_WINDOW];
+  if (!active.hit) {
+    active.hit_key = hex;
+    active.hit = true;
   }
   pthread_mutex_unlock(&worker_mutex);
   free(hex);
