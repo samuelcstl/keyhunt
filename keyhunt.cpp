@@ -3482,13 +3482,14 @@ secp->GetHash160_fromX(P2PKH,0x02,&pts[(j*4)].x,&pts[(j*4)+1].x,&pts[(j*4)+2].x,
 				startP = pp;
 			}while(count < assigned_count && continue_flag);
 		}
-	}
 #ifdef KEYHUNT_POOL_WORKER
+  } while (false);
     // Exactly one claimed slice per iteration; return to the queue now.
     worker_finish(worker_seq, worker_span);
     worker_current_seq = UINT64_MAX;
   }
 #else
+  } while(continue_flag);
 	ends[thread_number] = 1;
 #endif
   delete grp;
