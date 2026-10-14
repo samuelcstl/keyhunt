@@ -60,7 +60,7 @@ def main():
         try:
             pool.run(db, worker, max_jobs=1, timeout=10)
         except RuntimeError as exc:
-            assert "without completing" in str(exc), str(exc)
+            assert "with uncommitted jobs" in str(exc), str(exc)
         else:
             raise AssertionError("Fake worker crash went unnoticed")
         finally:
@@ -112,8 +112,8 @@ def main():
             assert state["next_i"] == 4 and state["inflight"] is None
             assert state["reissued"] == 1
         fixture_jobs = [json.loads(line) for line in fake_log.read_text().splitlines()][5:]
-        assert [j["id"] for j in fixture_jobs] == [0, 1, 2, 3], fixture_jobs
-        print("PASS: atomic checkpoint+next-job reservation has no skipped or repeated jobs")
+        assert [j["id"] for j in fixture_jobs] == [0, 1, 2, 3, 2, 3], fixture_jobs
+        print("PASS: pipelined restart never repeats committed jobs; only prefetched uncommitted jobs replay")
 
 
 if __name__ == "__main__":
