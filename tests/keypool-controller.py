@@ -86,6 +86,35 @@ def main():
         print("PASS: crash reissues exactly the uncommitted job, never a committed one")
         print("PASS: SQLite holds one campaign row and compact, auditable progress")
 
+        # New one-commit handoff: commit of job i also reserves i+1.
+        # Kill precisely after the checkpoint but before i+1 is dispatched.
+        # The restart must NOT repeat committed i nor skip reserved i+1.
+        fixture_db = work / "preassigned-fixture.sqlite3"
+        fixture_target = work / "fixture-target.txt"
+        fixture_target.write_text(pool.FIXTURE_TARGET + "\\n", encoding="ascii")
+        pool.init(fixture_db, fixture_target, fixture=True)
+        os.environ["KEYPOOL_TEST_INTERRUPT_AFTER_COMMIT"] = "1"
+        try:
+            pool.run(fixture_db, worker, max_jobs=4, timeout=10)
+        except RuntimeError as exc:
+            assert "after checkpoint" in str(exc), str(exc)
+        else:
+            raise AssertionError("Missing postcommit/pre-dispatch injection")
+        finally:
+            os.environ.pop("KEYPOOL_TEST_INTERRUPT_AFTER_COMMIT", None)
+        with pool.connect(fixture_db) as c:
+            state = pool.load(c)
+            assert state["next_i"] == 2 and state["inflight"] == 2
+            assert state["reissued"] == 0
+        pool.run(fixture_db, worker, max_jobs=2, timeout=10)
+        with pool.connect(fixture_db) as c:
+            state = pool.load(c)
+            assert state["next_i"] == 4 and state["inflight"] is None
+            assert state["reissued"] == 1
+        fixture_jobs = [json.loads(line) for line in fake_log.read_text().splitlines()][5:]
+        assert [j["id"] for j in fixture_jobs] == [0, 1, 2, 3], fixture_jobs
+        print("PASS: atomic checkpoint+next-job reservation has no skipped or repeated jobs")
+
 
 if __name__ == "__main__":
     main()
