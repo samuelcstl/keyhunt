@@ -91,7 +91,7 @@ def main():
         # The restart must NOT repeat committed i nor skip reserved i+1.
         fixture_db = work / "preassigned-fixture.sqlite3"
         fixture_target = work / "fixture-target.txt"
-        fixture_target.write_text(pool.FIXTURE_TARGET + "\\n", encoding="ascii")
+        fixture_target.write_text(pool.FIXTURE_TARGET + chr(10), encoding="ascii")
         pool.init(fixture_db, fixture_target, fixture=True)
         os.environ["KEYPOOL_TEST_INTERRUPT_AFTER_COMMIT"] = "1"
         try:
