@@ -1,0 +1,20 @@
+# Optional USER service. Template only: NEVER enabled or installed by repository builds.
+# Install manually as ~/.config/systemd/user/keypoold.service after validation.
+[Unit]
+Description=Keypool local Puzzle 71 search
+After=default.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/BITCOIN_ANALYSIS/bitcoin-puzzle/keyhunt
+ExecStart=/usr/bin/python3 %h/BITCOIN_ANALYSIS/bitcoin-puzzle/keyhunt/pool/keypoold.py run
+Nice=15
+IOSchedulingClass=idle
+UMask=0077
+Restart=on-failure
+RestartSec=10
+KillMode=control-group
+TimeoutStopSec=15
+
+[Install]
+WantedBy=default.target

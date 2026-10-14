@@ -35,8 +35,12 @@ namespace _sha256
 #define _byteswap_ulong __builtin_bswap32
 #define _byteswap_uint64 __builtin_bswap64
 inline uint32_t _rotr(uint32_t x, uint8_t r) {
+#if defined(__aarch64__)
+  return (x >> r) | (x << ((32 - r) & 31));
+#else
   asm("rorl %1,%0" : "+r" (x) : "c" (r));
   return x;
+#endif
 }
 #endif
 

@@ -1,0 +1,225 @@
+#!/usr/bin/env python3
+"""Full Puzzle #20 coverage and replay oracle through real Keypool -> NEON worker.
+
+Intentional, publicly solved puzzle. Separate temporary DB; never opens,
+initializes, advances, or changes the user's existing Puzzle #71 campaign.
+"""
+from collections import Counter
+import importlib.util
+import os
+from pathlib import Path
+import re
+import stat
+import tempfile
+
+ROOT = Path(__file__).resolve().parent.parent
+spec = importlib.util.spec_from_file_location("keypoold", ROOT / "pool/keypoold.py")
+pool = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(pool)
+
+KEY = 0xD2C55
+GROUP = 1024
+WORKER_SLICE = 2048
+SCAN = re.compile(r"WORKER_SCANNED start=([0-9a-fA-F]+) count=(\d+)")
+SLICE = re.compile(r"WORKER_SLICE start=([0-9a-fA-F]+) count=(\d+)")
+
+
+def parse(logs, pattern):
+    return [(int(start, 16), int(count))
+            for log in logs for start, count in pattern.findall(log)]
+
+
+def main():
+    worker = ROOT / "keyhunt-worker"
+    if not worker.is_file():
+        raise SystemExit("Build first: make arm64-worker")
+    lower, upper, chunk, size = (
+        pool.FIXTURE_LOWER, pool.FIXTURE_UPPER,
+        pool.FIXTURE_CHUNK, pool.FIXTURE_COUNT)
+    seed = bytes.fromhex(pool.FIXTURE_SEED)
+    assert size == 64 and upper-lower == 524288
+    known_chunk = (KEY-lower)//chunk
+    assert pool.permute(size-1, seed, pool.FIXTURE_BITS) == known_chunk
+    order = [pool.permute(i, seed, pool.FIXTURE_BITS) for i in range(size)]
+    assert len(set(order)) == size and order != list(range(size))
+    assert all(order[i] != known_chunk for i in range(size-1))
+
+    with tempfile.TemporaryDirectory(prefix="keypool-puzzle20-exhaustive-") as tmp:
+        work = Path(tmp)
+        db = work/"fixture.sqlite3"
+        target = work/"target.txt"
+        target.write_text(pool.FIXTURE_TARGET+"\n", encoding="ascii")
+        assert db.resolve() != pool.DEFAULT_DB.resolve()
+        pool.init(db, target, fixture=True)
+        original_environment = {
+            name: os.environ.get(name) for name in
+            ("KEYHUNT_WORKER_TRACE", "KEYHUNT_WORKER_COVERAGE",
+             "KEYPOOL_TEST_INTERRUPT_BEFORE_COMMIT")
+        }
+        logs = []
+        try:
+            os.environ["KEYHUNT_WORKER_TRACE"] = "1"
+            os.environ["KEYHUNT_WORKER_COVERAGE"] = "1"
+            os.environ.pop("KEYPOOL_TEST_INTERRUPT_BEFORE_COMMIT", None)
+
+            # First 23 distinct chunks, then a deliberate crash after the
+            # 24th was fully scanned but BEFORE the SQLite commit.
+            pool.run(db, worker, max_jobs=23, timeout=60)
+            logs.append((work/"worker.log").read_text(encoding="utf-8"))
+            with pool.connect(db) as conn:
+                state=pool.load(conn)
+                assert state["next_i"] == 23 and state["inflight"] is None
+
+            os.environ["KEYPOOL_TEST_INTERRUPT_BEFORE_COMMIT"]="23"
+            try:
+                pool.run(db, worker, max_jobs=1, timeout=60)
+            except RuntimeError as exc:
+                assert "Injected fixture crash" in str(exc), exc
+            else:
+                raise AssertionError("Expected precommit fault did not occur")
+            logs.append((work/"worker.log").read_text(encoding="utf-8"))
+            with pool.connect(db) as conn:
+                state=pool.load(conn)
+                assert state["next_i"] == 23 and state["inflight"] == 23
+            os.environ.pop("KEYPOOL_TEST_INTERRUPT_BEFORE_COMMIT", None)
+
+            # Exactly that uncommitted chunk must be replayed. Then finish
+            # every remaining chunk. The real known key is in ordinal 63.
+            pool.run(db, worker, max_jobs=40, timeout=60)
+            logs.append((work/"worker.log").read_text(encoding="utf-8"))
+            with pool.connect(db) as conn:
+                state=pool.load(conn)
+                assert state["next_i"] == 63 and state["inflight"] is None
+                assert state["reissued"] == 1 and state["found"] == 0
+
+            pool.run(db, worker, max_jobs=1, timeout=60)
+            logs.append((work/"worker.log").read_text(encoding="utf-8"))
+            with pool.connect(db) as conn:
+                state=pool.load(conn)
+                assert state["next_i"] == size
+                assert state["inflight"] is None
+                assert state["reissued"] == 1
+                assert state["found"] == 1
+        finally:
+            for name, previous in original_environment.items():
+                if previous is None:
+                    os.environ.pop(name, None)
+                else:
+                    os.environ[name] = previous
+
+        # Oracle #1: each chunk's four disjoint worker slices must appear.
+        slices = parse(logs, SLICE)
+        expected_slices = [
+            (lower + block*chunk + k*WORKER_SLICE, WORKER_SLICE)
+            for block in order for k in range(chunk//WORKER_SLICE)
+        ]
+        replay_block=order[23]
+        replay_slices=[
+            (lower + replay_block*chunk + k*WORKER_SLICE, WORKER_SLICE)
+            for k in range(chunk//WORKER_SLICE)
+        ]
+        assert Counter(slices) == Counter(expected_slices+replay_slices), (
+            "worker sliced a gap, overlap, or out-of-bounds interval")
+
+        # Oracle #2: post-HASH160 instrumentation, not just allocated slices.
+        scanned = parse(logs, SCAN)
+        expected_groups = [(key, GROUP) for key in range(lower, upper, GROUP)]
+        duplicate_groups = [
+            (lower + replay_block*chunk + k*GROUP, GROUP)
+            for k in range(chunk//GROUP)
+        ]
+        assert Counter(scanned) == Counter(expected_groups+duplicate_groups), (
+            "post-HASH160 group trace shows a missing or unexpectedly "
+            "duplicated group")
+        assert len(scanned) == len(expected_groups)+len(duplicate_groups)
+        assert all(GROUP == count for _, count in scanned)
+        assert sum(c for _, c in expected_groups) == upper-lower
+        assert sum(c for _, c in duplicate_groups) == chunk
+
+        # Oracle #3: order of successive jobs observed in worker traces.
+        job_ord={block:i for i,block in enumerate(order)}
+        observed_order=[]
+        for log in logs:
+            # Each slice is claimed atomically, but worker threads can finish
+            # slices from adjacent chunks in interleaved order. Assert first
+            # appearance per job per session; do not reconstruct a barrier.
+            seen=set()
+            for start, count in parse([log], SLICE):
+                block=(start-lower)//chunk
+                job_i=job_ord[block]
+                if job_i not in seen:
+                    observed_order.append(job_i)
+                    seen.add(job_i)
+        assert observed_order == list(range(24))+list(range(23,64)), observed_order
+
+        # Hit must be recovered only when last chunk is completed.
+        found=work/"FOUND.private"
+        assert found.is_file() and int(found.read_text().strip(),16) == KEY
+        assert stat.S_IMODE(found.stat().st_mode) == 0o600
+        assert all("Private Key:" not in log for log in logs)
+        print("PASS: 64 randomized, disjoint Puzzle 20 chunks, verified actual dispatch order")
+        print("PASS: 512/512 SHA256+RIPEMD160 groups account for all 524288 distinct keys")
+        print("PASS: only eight 1024-key groups repeated after injected precommit crash")
+        print("PASS: durable cursor 64, 1 recorded replay, and correct final known private key")
+        print("PASS: production Puzzle 71 SQLite campaign was never touched")
+
+        # Additional ACTUAL four-job pipeline recovery. A pre-commit crash
+        # can leave prefetched chunks (i+1..i+3) already hashed. Those may
+        # replay; previously COMMITTED chunks must never replay.
+        pipeline = work / "pipeline"
+        pipeline.mkdir(mode=0o700)
+        pipedb = pipeline / "campaign.sqlite3"
+        pipetarget = pipeline / "target.txt"
+        pipetarget.write_text(pool.FIXTURE_TARGET + chr(10), encoding="ascii")
+        pool.init(pipedb, pipetarget, fixture=True)
+        before_trace = os.environ.get("KEYHUNT_WORKER_COVERAGE")
+        before_fault = os.environ.get("KEYPOOL_TEST_INTERRUPT_BEFORE_COMMIT")
+        os.environ["KEYHUNT_WORKER_COVERAGE"] = "1"
+        os.environ["KEYPOOL_TEST_INTERRUPT_BEFORE_COMMIT"] = "3"
+        try:
+            try:
+                pool.run(pipedb, worker, max_jobs=64, timeout=60, window=4)
+            except RuntimeError as exc:
+                assert "Injected fixture crash" in str(exc), exc
+            else:
+                raise AssertionError("Four-job precommit fault was not detected")
+            first_log = (pipeline / "worker.log").read_text(encoding="utf-8")
+            with pool.connect(pipedb) as conn:
+                state=pool.load(conn)
+                assert state["next_i"] == 3 and state["inflight"] == 3
+                assert state["reissued"] == 0 and state["found"] == 0
+            os.environ.pop("KEYPOOL_TEST_INTERRUPT_BEFORE_COMMIT", None)
+            pool.run(pipedb, worker, max_jobs=61, timeout=60, window=4)
+            second_log = (pipeline / "worker.log").read_text(encoding="utf-8")
+            with pool.connect(pipedb) as conn:
+                state=pool.load(conn)
+                assert state["next_i"] == 64 and state["inflight"] is None
+                assert state["reissued"] == 1 and state["found"] == 1
+        finally:
+            if before_trace is None:
+                os.environ.pop("KEYHUNT_WORKER_COVERAGE", None)
+            else:
+                os.environ["KEYHUNT_WORKER_COVERAGE"] = before_trace
+            if before_fault is None:
+                os.environ.pop("KEYPOOL_TEST_INTERRUPT_BEFORE_COMMIT", None)
+            else:
+                os.environ["KEYPOOL_TEST_INTERRUPT_BEFORE_COMMIT"] = before_fault
+
+        all_groups=Counter(parse([first_log,second_log], SCAN))
+        assert set(all_groups) == set(expected_groups), "pipeline lost scalar coverage"
+        assert all(1 <= n <= 2 for n in all_groups.values()), (
+            "unexpected triple-scanned hash group")
+        duplicated_ordinals = {
+            job_ord[(start-lower)//chunk]
+            for (start, group_size), n in all_groups.items() if n == 2
+        }
+        assert 3 in duplicated_ordinals, "in-flight job must replay after crash"
+        assert duplicated_ordinals <= {3,4,5,6}, duplicated_ordinals
+        key_file = pipeline / "FOUND.private"
+        assert key_file.is_file() and int(key_file.read_text().strip(), 16) == KEY
+        print("PASS: four-job crash replays only uncommitted bounded window, zero gaps")
+        print("PASS: no committed Puzzle 20 chunk rehashed by pipelined restart")
+
+
+if __name__ == "__main__":
+    main()
