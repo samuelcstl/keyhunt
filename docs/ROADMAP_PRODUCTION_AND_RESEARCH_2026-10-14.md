@@ -5,7 +5,7 @@
 
 ## Actual baseline and invariants
 
-- Four-core standalone NEON engine: **7.337 M distinct-scalar attempts/s**, sustained twice on Pi 5 (October 11). A later diagnostic during idle Pi conditions again observed ~7.317 M/s (October 14). The pipelined Keypool A/B/C test after fixing background CPU contention remains to be run.
+- Four-core standalone NEON engine: **7.337 M scalar attempts/s (not globally deduplicated with standalone random mode)**, sustained twice on Pi 5 (October 11). A later diagnostic during idle Pi conditions again observed ~7.317 M/s (October 14). The pipelined Keypool A/B/C test after fixing background CPU contention remains to be run.
 - Verified existing Puzzle #71 campaign: **520 completed chunks**, **545,259,520 unique completed keys**, **0 recorded recovery restarts**, **no hit** at October 14 test. Preserve its SQLite DB, Feistel seed, immutable config and ordinal cursor; never rerun `init` to resume.
 - Domain `[2^70,2^71)`, chunk `2^20`, `2^50` chunks, scrambled by bijective seeded Feistel; within chunk, scalar step 1, true compressed Y parity. **Disjoint internally** does not mean disjoint against other miners.
 - Four-job C++ bounded queue, continuous four-thread slice claims, ordered results, SQLite checkpoint; at most four uncommitted prefetched jobs may replay after a crash. Both single-window and four-window interrupted Puzzle #20 exhaustive coverage cases passed GitHub ARM64 and actual Pi testing, as of October 14.
