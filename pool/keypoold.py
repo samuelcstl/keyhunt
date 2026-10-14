@@ -269,8 +269,13 @@ def run(db: Path, worker: Path, max_jobs: int, timeout: int) -> None:
                     i = s["next_i"]
                     block = permute(i, seed, bits)
                     lo, hi = lower + block * chunk, lower + (block+1) * chunk
-                    c.execute("UPDATE campaign SET inflight=? WHERE id=1", (i,))
-                    c.commit()  # journal before dispatch, so crash cannot skip
+                    # First assignment needs its own durable reservation.
+                    # Subsequent assignments were reserved by the previous
+                    # job's checkpoint transaction (one commit per job).
+                    if s["inflight"] != i:
+                        c.execute("UPDATE campaign SET inflight=? WHERE id=1", (i,))
+                        c.commit()
+                        s["inflight"] = i
                     job = json.dumps({"id": i, "start": hex(lo),
                                       "end_exclusive": hex(hi)}, separators=(",", ":"))
                     proc.stdin.write(job + "\n")
@@ -299,16 +304,32 @@ def run(db: Path, worker: Path, max_jobs: int, timeout: int) -> None:
                     if (s["version"] == FIXTURE_ALGO and
                         os.environ.get("KEYPOOL_TEST_INTERRUPT_BEFORE_COMMIT") == str(i)):
                         raise RuntimeError("Injected fixture crash before checkpoint")
+                    next_i = i + 1
+                    processed_next = processed + 1
+                    # Reserve the next job in the SAME durable transaction
+                    # that acknowledges this one. On crash, next_i still
+                    # identifies exactly the first uncommitted job.
+                    continue_run = (kind != "hit" and next_i < count and
+                                    not SHUTDOWN and
+                                    (not max_jobs or processed_next < max_jobs))
+                    next_inflight = next_i if continue_run else None
                     updated = c.execute(
-                        "UPDATE campaign SET next_i=?, inflight=NULL, found=? "
-                        "WHERE id=1 AND next_i=?",
-                        (i + 1, int(kind == "hit"), i),
+                        "UPDATE campaign SET next_i=?, inflight=?, found=? "
+                        "WHERE id=1 AND next_i=? AND inflight=?",
+                        (next_i, next_inflight, int(kind == "hit"), i, i),
                     )
                     if updated.rowcount != 1:
                         raise RuntimeError("Unexpected database cursor")
                     c.commit()
-                    s["next_i"] = i + 1
-                    processed += 1
+                    s["next_i"] = next_i
+                    s["inflight"] = next_inflight
+                    processed = processed_next
+                    # Fixture-only test: simulate power loss after the
+                    # checkpoint and NEXT reservation were durably committed,
+                    # but before the next job was actually sent.
+                    if (s["version"] == FIXTURE_ALGO and continue_run and
+                        os.environ.get("KEYPOOL_TEST_INTERRUPT_AFTER_COMMIT") == str(i)):
+                        raise RuntimeError("Injected fixture crash after checkpoint")
                     if kind == "hit":
                         break
                     if max_jobs and processed >= max_jobs:
