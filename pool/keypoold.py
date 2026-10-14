@@ -148,7 +148,7 @@ def status(db: Path) -> None:
         "target": s["target"], "completed_chunks": i,
         "unique_completed_keys": str(i * cfg["chunk"]),
         "total_chunks": cfg["count"], "percent": 100 * i / cfg["count"],
-        "inflight": s["inflight"], "reissued_assignments": s["reissued"],
+        "inflight": s["inflight"], "recovery_restarts": s["reissued"],
         "found": bool(s["found"]),
     }, indent=2))
 
