@@ -10,6 +10,10 @@ This repository is an experimental fork of AlbertoBSD/keyhunt, actively worked o
 4. [Pi5 code-level waste audit](research/2026-10-11-pi5-architectural-audit.md).
 5. [GPU source-level comparison](research/2026-10-11-gpu-source-audit.md).
 
+## Roadmap and open production work
+
+**Current comprehensive plan:** [2026-10-14 production, claim, operations and research roadmap](docs/ROADMAP_PRODUCTION_AND_RESEARCH_2026-10-14.md). Read it before starting live service, building a claim path, excluding another pool's ranges, or prioritizing new mathematical work.
+
 ## Known-good computation and limits
 
 - Working target: Puzzle #71 compressed Bitcoin P2PKH, target address `1PWo3JeB9jrGwfHDNpdGK54CRas7fsVzXU`; public key is not known in the reviewed sources.
