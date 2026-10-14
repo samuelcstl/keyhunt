@@ -163,6 +163,63 @@ def main():
         print("PASS: durable cursor 64, 1 recorded replay, and correct final known private key")
         print("PASS: production Puzzle 71 SQLite campaign was never touched")
 
+        # Additional ACTUAL four-job pipeline recovery. A pre-commit crash
+        # can leave prefetched chunks (i+1..i+3) already hashed. Those may
+        # replay; previously COMMITTED chunks must never replay.
+        pipeline = work / "pipeline"
+        pipeline.mkdir(mode=0o700)
+        pipedb = pipeline / "campaign.sqlite3"
+        pipetarget = pipeline / "target.txt"
+        pipetarget.write_text(pool.FIXTURE_TARGET + chr(10), encoding="ascii")
+        pool.init(pipedb, pipetarget, fixture=True)
+        before_trace = os.environ.get("KEYHUNT_WORKER_COVERAGE")
+        before_fault = os.environ.get("KEYPOOL_TEST_INTERRUPT_BEFORE_COMMIT")
+        os.environ["KEYHUNT_WORKER_COVERAGE"] = "1"
+        os.environ["KEYPOOL_TEST_INTERRUPT_BEFORE_COMMIT"] = "3"
+        try:
+            try:
+                pool.run(pipedb, worker, max_jobs=64, timeout=60, window=4)
+            except RuntimeError as exc:
+                assert "Injected fixture crash" in str(exc), exc
+            else:
+                raise AssertionError("Four-job precommit fault was not detected")
+            first_log = (pipeline / "worker.log").read_text(encoding="utf-8")
+            with pool.connect(pipedb) as conn:
+                state=pool.load(conn)
+                assert state["next_i"] == 3 and state["inflight"] == 3
+                assert state["reissued"] == 0 and state["found"] == 0
+            os.environ.pop("KEYPOOL_TEST_INTERRUPT_BEFORE_COMMIT", None)
+            pool.run(pipedb, worker, max_jobs=61, timeout=60, window=4)
+            second_log = (pipeline / "worker.log").read_text(encoding="utf-8")
+            with pool.connect(pipedb) as conn:
+                state=pool.load(conn)
+                assert state["next_i"] == 64 and state["inflight"] is None
+                assert state["reissued"] == 1 and state["found"] == 1
+        finally:
+            if before_trace is None:
+                os.environ.pop("KEYHUNT_WORKER_COVERAGE", None)
+            else:
+                os.environ["KEYHUNT_WORKER_COVERAGE"] = before_trace
+            if before_fault is None:
+                os.environ.pop("KEYPOOL_TEST_INTERRUPT_BEFORE_COMMIT", None)
+            else:
+                os.environ["KEYPOOL_TEST_INTERRUPT_BEFORE_COMMIT"] = before_fault
+
+        all_groups=Counter(parse([first_log,second_log], SCAN))
+        assert set(all_groups) == set(expected_groups), "pipeline lost scalar coverage"
+        assert all(1 <= n <= 2 for n in all_groups.values()), (
+            "unexpected triple-scanned hash group")
+        duplicated_ordinals = {
+            job_ord[(start-lower)//chunk]
+            for (start, group_size), n in all_groups.items() if n == 2
+        }
+        assert 3 in duplicated_ordinals, "in-flight job must replay after crash"
+        assert duplicated_ordinals <= {3,4,5,6}, duplicated_ordinals
+        key_file = pipeline / "FOUND.private"
+        assert key_file.is_file() and int(key_file.read_text().strip(), 16) == KEY
+        print("PASS: four-job crash replays only uncommitted bounded window, zero gaps")
+        print("PASS: no committed Puzzle 20 chunk rehashed by pipelined restart")
+
 
 if __name__ == "__main__":
     main()
