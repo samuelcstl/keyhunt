@@ -643,3 +643,16 @@ arm64-r3-ecc-test: arm64-r3-ecc
 	  KEYHUNT_WORKER_BIN=$$worker python3 tests/arm64-worker-protocol.py; \
 	  KEYHUNT_WORKER_BIN=$$worker python3 tests/keypool-puzzle20-exhaustive.py; \
 	done
+
+# R4 is an isolated field-kernel SCREEN only. It never replaces IntMod,
+# the point generator, the default worker, or the persistent campaign.
+# Use short reverse-order 2-second microbench samples before integration.
+build/arm64/ecc-radix-screen: tests/arm64-r4-ecc-radix-screen.cpp \
+  build/arm64/secp256k1/field_k1_arm64.o
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^
+
+.PHONY: arm64-r4-ecc-build arm64-r4-ecc-test
+arm64-r4-ecc-build: build/arm64/ecc-radix-screen
+arm64-r4-ecc-test: arm64-r4-ecc-build
+	build/arm64/ecc-radix-screen --verify 5000

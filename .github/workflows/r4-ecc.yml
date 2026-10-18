@@ -1,0 +1,23 @@
+name: R4 ECC radix microkernels
+on:
+  push:
+    branches: [experiment/pi5-r4-ecc-radix-screen-20261018]
+  workflow_dispatch:
+jobs:
+  arm64-radix:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate short benchmark driver and archive scripts
+        run: |
+          bash -n tests/arm64-r4-ecc-screen.sh tests/arm64-evidence-archive.sh
+          python3 -m py_compile tests/arm64-r4-ecc-assess.py
+          bash tests/arm64-evidence-archive-test.sh
+      - name: Compile all six field kernel variants
+        run: make -j2 arm64-r4-ecc-build
+      - name: Exact native-vs-radix and NEON vector correctness
+        run: make arm64-r4-ecc-test
+      - name: Fast smoke benchmark (not a Pi throughput claim)
+        run: |
+          build/arm64/ecc-radix-screen --seconds 0.15 --repeats 2 > /tmp/r4-smoke.csv
+          python3 tests/arm64-r4-ecc-assess.py /tmp/r4-smoke.csv
