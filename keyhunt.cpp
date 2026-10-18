@@ -2794,6 +2794,9 @@ void *thread_process(void *vargp)	{
 #ifdef KEYHUNT_ECC_PAIR_SCHED
 	Int ecc_minus_s, ecc_minus_sq;
 #endif
+#if defined(KEYHUNT_R7_ECC_PIPE_SCHED) || defined(KEYHUNT_R7_ECC_PIPE_PAIR) || defined(KEYHUNT_R7_ECC_PIPE_FOLD)
+	Int y_plus_delta, y_minus_delta;
+#endif
 #ifdef KEYHUNT_R7_STAGE_STATS
 	using R7Clock=std::chrono::steady_clock;
 	uint64_t r7_inv_ns=0,r7_points_ns=0,r7_hash_ns=0,r7_batches=0;
@@ -3004,7 +3007,9 @@ void *thread_process(void *vargp)	{
 
 					// P = startP - i*G  , if (x,y) = i*G then (x,-y) = -i*G
 #ifdef KEYHUNT_ECC_PAIR_SCHED
+#if !defined(KEYHUNT_R7_ECC_PIPE_SCHED) && !defined(KEYHUNT_R7_ECC_PIPE_PAIR) && !defined(KEYHUNT_R7_ECC_PIPE_FOLD)
 					_s.Set(&ecc_minus_s);
+#endif
 					_p.Set(&ecc_minus_sq);
 #else
 #ifdef KEYHUNT_R1_NEG_GN_Y
@@ -3030,7 +3035,6 @@ void *thread_process(void *vargp)	{
 					if (calculate_y) {
 						// Both slopes, both squares, both X coordinates complete.
 						// Preserve independence across Y, then store the pair.
-						Int y_plus_delta, y_minus_delta;
 						y_plus_delta.ModSub(&Gn[i].x, &pp.x);
 						y_minus_delta.ModSub(&Gn[i].x, &pn.x);
 #if defined(KEYHUNT_R7_ECC_PIPE_FOLD)
