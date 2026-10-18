@@ -1,0 +1,26 @@
+name: Pi5 NEON RIPEMD rotate experiment
+on:
+  push:
+    branches: [experiment/pi5-ripemd-rotate-20261018]
+  workflow_dispatch:
+
+jobs:
+  arm64-ripemd:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect benchmark syntax and codegen analysis
+        run: |
+          bash -n tests/arm64-r2-ripemd-bench.sh tests/arm64-evidence-archive.sh
+          python3 -m py_compile tests/arm64-r2-ripemd-asm.py
+      - name: Build control, isolated SLI and SRI kernels
+        run: make -j2 arm64-r2-ripemd
+      - name: Verify exact hardware rotate insertion exists in compiled binaries
+        run: python3 tests/arm64-r2-ripemd-asm.py keyhunt-r1-all keyhunt-r2-ripemd-sli keyhunt-r2-ripemd-sri
+      - name: Exhaustive fixture, ECC and RIPEMD correctness
+        run: |
+          if grep -qi sha2 /proc/cpuinfo; then
+            make arm64-r2-ripemd-test
+          else
+            echo "AArch64 runner lacks SHA2: build passed; Pi hardware required for execution."
+          fi

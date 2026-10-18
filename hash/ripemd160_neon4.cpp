@@ -31,7 +31,17 @@ namespace {
 using V = uint32x4_t;
 
 // NEON 128-bit vectors: one independent digest per 32-bit lane.
+// Two instruction candidates. Keep the original as the immutable baseline.
+// Both identities are exact 32-bit rotates. Compiler output decides viability.
+#if defined(KEYHUNT_RIPEMD_ROL_SLI) && defined(KEYHUNT_RIPEMD_ROL_SRI)
+#error "Select only one RIPEMD160 rotate variant"
+#elif defined(KEYHUNT_RIPEMD_ROL_SLI)
+#define ROL(x,n) vsliq_n_u32(vshrq_n_u32((x),32-(n)),(x),(n))
+#elif defined(KEYHUNT_RIPEMD_ROL_SRI)
+#define ROL(x,n) vsriq_n_u32(vshlq_n_u32((x),(n)),(x),32-(n))
+#else
 #define ROL(x,n) vorrq_u32(vshlq_n_u32((x),(n)),vshrq_n_u32((x),32-(n)))
+#endif
 #define f1(x,y,z) veorq_u32((x),veorq_u32((y),(z)))
 #define f2(x,y,z) vorrq_u32(vandq_u32((x),(y)),vbicq_u32((z),(x)))
 #define f3(x,y,z) veorq_u32(vorrq_u32((x),vmvnq_u32((y))),(z))
