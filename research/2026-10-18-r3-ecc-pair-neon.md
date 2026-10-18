@@ -1,6 +1,13 @@
 # R3 ECC: expose independent point work, qualify NEON arithmetic
 
-Status: **experimental; correctness on ARM64 pending; physical Pi throughput not measured**.
+Status: **ARM64 correctness PASS; physical Pi throughput not measured / UNQUALIFIED**.
+ARM64 runner [workflow 39133677194](https://github.com/samuelcstl/keyhunt/actions/runs/39133677194)
+completed successfully after fixing a test-only stdlib symbol naming conflict.
+Validation: **53,854 independently checked paired modular-subtraction oracle cases**,
+full 71/140/256-bit key/parity vectors, known Puzzle #20 recovery,
+upstream solved fixtures, persistent JSON-worker protocol, and exhaustive
+524,288-key Puzzle #20 Keypool coverage with crash replay for both ECC
+variants. No costly throughput benchmarks ran in CI.
 Branch is stacked on R2 RIPEMD160 SRI, itself stacked on R1. Do not merge
 without parent verification and review.
 
