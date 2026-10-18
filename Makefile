@@ -656,3 +656,16 @@ build/arm64/ecc-radix-screen: tests/arm64-r4-ecc-radix-screen.cpp \
 arm64-r4-ecc-build: build/arm64/ecc-radix-screen
 arm64-r4-ecc-test: arm64-r4-ecc-build
 	build/arm64/ecc-radix-screen --verify 5000
+
+# R5 ILP/resident-radix field chain SCREEN. Isolated executable, never
+# linked into any Keyhunt or Keypool production binary.
+build/arm64/ecc-r5-chains: tests/arm64-r5-ecc-chains.cpp \
+  build/arm64/secp256k1/field_k1_arm64.o
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^
+
+.PHONY: arm64-r5-ecc-build arm64-r5-ecc-test
+arm64-r5-ecc-build: build/arm64/ecc-r5-chains
+arm64-r5-ecc-test: arm64-r5-ecc-build
+	build/arm64/ecc-r5-chains --verify 2000
+	python3 tests/arm64-r5-ecc-oracle.py
