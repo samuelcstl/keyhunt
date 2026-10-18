@@ -2824,6 +2824,20 @@ void *thread_process(void *vargp)	{
 		fprintf(stderr,"[I] Four-lane NEON target comparison active\n");
 #endif
 	grp->Set(dx);
+#ifdef KEYHUNT_R1_STRIDE4
+	// Once per worker: 4 * stride is immutable throughout all assigned slices.
+	Int r1_stride4;
+	r1_stride4.SetInt32(4);
+	r1_stride4.Mult(&stride);
+#endif
+#ifdef KEYHUNT_R1_NEG_GN_Y
+	// Gn[] is immutable after init_generator(); eliminate per-point ModNeg.
+	std::vector<Int> r1_neg_generator_y(CPU_GRP_SIZE / 2);
+	for (int g = 0; g < CPU_GRP_SIZE / 2; ++g) {
+		r1_neg_generator_y[g].Set(&Gn[g].y);
+		r1_neg_generator_y[g].ModNeg();
+	}
+#endif
 #ifdef KEYHUNT_POOL_WORKER
   for (;;) {
     uint64_t worker_seq = UINT64_MAX;
@@ -2943,9 +2957,13 @@ void *thread_process(void *vargp)	{
 					}
 
 					// P = startP - i*G  , if (x,y) = i*G then (x,-y) = -i*G
+#ifdef KEYHUNT_R1_NEG_GN_Y
+					dyn.ModSub(&r1_neg_generator_y[i], &pn.y);
+#else
 					dyn.Set(&Gn[i].y);
 					dyn.ModNeg();
 					dyn.ModSub(&pn.y);
+#endif
 
 					_s.ModMulK1(&dyn,&dx[i]);      // s = (p2.y-p1.y)*inverse(p2.x-p1.x);
 					_p.ModSquareK1(&_s);            // _p = pow2(s)
@@ -3005,9 +3023,13 @@ void *thread_process(void *vargp)	{
 
 				// First point (startP - (GRP_SZIE/2)*G)
 				pn = startP;
+#ifdef KEYHUNT_R1_NEG_GN_Y
+				dyn.ModSub(&r1_neg_generator_y[i], &pn.y);
+#else
 				dyn.Set(&Gn[i].y);
 				dyn.ModNeg();
 				dyn.ModSub(&pn.y);
+#endif
 
 				_s.ModMulK1(&dyn,&dx[i]);
 				_p.ModSquareK1(&_s);
@@ -3147,7 +3169,14 @@ secp->GetHash160_fromX(P2PKH,0x02,&pts[(j*4)].x,&pts[(j*4)+1].x,&pts[(j*4)+2].x,
 						case MODE_ADDRESS:
 							if( FLAGCRYPTO  == CRYPTO_BTC) {
 								
+								#if defined(KEYHUNT_R1_ZERO_MASK) && defined(KEYHUNT_NEON_TARGET_COMPARE)
+								// Empty SIMD mask means all four scalar hit checks can be skipped.
+								const int r1_btc_lanes =
+								    (parity_search && N == 1 && neon_target_matches == 0) ? 0 : 4;
+								for(k = 0; k < r1_btc_lanes;k++)	{
+#else
 								for(k = 0; k < 4;k++)	{
+#endif
 #ifdef KEYHUNT_NEON_TARGET_COMPARE
 									if (parity_search && N == 1 &&
 									    !(neon_target_matches & (1u << k)))
@@ -3441,9 +3470,13 @@ secp->GetHash160_fromX(P2PKH,0x02,&pts[(j*4)].x,&pts[(j*4)+1].x,&pts[(j*4)+2].x,
 						break;
 					}
 					count+=4;
+#ifdef KEYHUNT_R1_STRIDE4
+					key_mpz.Add(&r1_stride4);
+#else
 					temp_stride.SetInt32(4);
 					temp_stride.Mult(&stride);
 					key_mpz.Add(&temp_stride);
+#endif
 				}
 				/*
 				if(FLAGDEBUG) {
