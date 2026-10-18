@@ -8,6 +8,11 @@ jobs:
     runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v4
+      - name: Validate physical Pi archive script and assessor
+        run: |
+          bash -n tests/arm64-r8-pipeline-screen.sh
+          python3 -m py_compile tests/arm64-r8-pipeline-assess.py
+          bash tests/arm64-evidence-archive-test.sh
       - name: Compile real producer/consumer stage executable
         run: make -j2 arm64-r8-pipeline
       - name: Verify all 1024 points, packet IDs, SHA160 and Puzzle20 for W=1 2 4 8 16
