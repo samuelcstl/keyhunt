@@ -26,6 +26,9 @@ email: albertobsd@gmail.com
 #include "secp256k1/Point.h"
 #include "secp256k1/Int.h"
 #include "secp256k1/IntGroup.h"
+#ifdef KEYHUNT_R7_STAGE_STATS
+#include <chrono>
+#endif
 #if defined(KEYHUNT_R6_ECC_PAIR_MUL) || defined(KEYHUNT_R6_ECC_PAIR_FOLD) || \
     defined(KEYHUNT_R7_ECC_PIPE_PAIR) || defined(KEYHUNT_R7_ECC_PIPE_FOLD)
 #include "secp256k1/field_k1_pair_ilp.h"
@@ -2791,6 +2794,10 @@ void *thread_process(void *vargp)	{
 #ifdef KEYHUNT_ECC_PAIR_SCHED
 	Int ecc_minus_s, ecc_minus_sq;
 #endif
+#ifdef KEYHUNT_R7_STAGE_STATS
+	using R7Clock=std::chrono::steady_clock;
+	uint64_t r7_inv_ns=0,r7_points_ns=0,r7_hash_ns=0,r7_batches=0;
+#endif
 	Point pp;
 	Point pn;
 	int i,l,pp_offset,pn_offset,hLength = (CPU_GRP_SIZE / 2 - 1);
@@ -2932,6 +2939,9 @@ void *thread_process(void *vargp)	{
 				}
 #endif
 
+#ifdef KEYHUNT_R7_STAGE_STATS
+				auto r7_start=R7Clock::now();
+#endif
 				for(i = 0; i < hLength; i++) {
 					dx[i].ModSub(&Gn[i].x,&startP.x);
 				}
@@ -2939,7 +2949,9 @@ void *thread_process(void *vargp)	{
 				dx[i].ModSub(&Gn[i].x,&startP.x);  // For the first point
 				dx[i + 1].ModSub(&_2Gn.x,&startP.x); // For the next center point
 				grp->ModInv();
-
+#ifdef KEYHUNT_R7_STAGE_STATS
+				auto r7_after_inverse=R7Clock::now();
+#endif
 				pts[CPU_GRP_SIZE / 2] = startP;
 
 				for(i = 0; i<hLength; i++) {
@@ -3127,6 +3139,9 @@ void *thread_process(void *vargp)	{
 					endomorphism_beta2[0].x.ModMulK1(&pn.x, &beta2);
 				}
 								
+#ifdef KEYHUNT_R7_STAGE_STATS
+				auto r7_after_points=R7Clock::now();
+#endif
 				for(j = 0; j < CPU_GRP_SIZE/4;j++){
 #ifdef KEYHUNT_NEON_TARGET_COMPARE
 					uint8_t neon_target_matches = 0x0F;
@@ -3550,6 +3565,16 @@ secp->GetHash160_fromX(P2PKH,0x02,&pts[(j*4)].x,&pts[(j*4)+1].x,&pts[(j*4)+2].x,
 				}
 				*/
 
+#ifdef KEYHUNT_R7_STAGE_STATS
+				auto r7_after_hash=R7Clock::now();
+				r7_inv_ns+=std::chrono::duration_cast<std::chrono::nanoseconds>(
+					r7_after_inverse-r7_start).count();
+				r7_points_ns+=std::chrono::duration_cast<std::chrono::nanoseconds>(
+					r7_after_points-r7_after_inverse).count();
+				r7_hash_ns+=std::chrono::duration_cast<std::chrono::nanoseconds>(
+					r7_after_hash-r7_after_points).count();
+				++r7_batches;
+#endif
 				steps[thread_number]++;
 #ifdef KEYHUNT_POOL_WORKER
         // Emit only after the whole four-lane HASH160 group was evaluated.
@@ -3589,6 +3614,14 @@ secp->GetHash160_fromX(P2PKH,0x02,&pts[(j*4)].x,&pts[(j*4)+1].x,&pts[(j*4)+2].x,
 #else
   } while(continue_flag);
 	ends[thread_number] = 1;
+#endif
+#ifdef KEYHUNT_R7_STAGE_STATS
+	if (getenv("KEYHUNT_R7_STAGE_PROFILE")) {
+		fprintf(stderr,"R7_STAGES worker=%d batches=%" PRIu64
+		        " inverse_ns=%" PRIu64 " points_ns=%" PRIu64
+		        " hash_scan_ns=%" PRIu64 "\n",
+		        thread_number,r7_batches,r7_inv_ns,r7_points_ns,r7_hash_ns);
+	}
 #endif
   delete grp;
 	return NULL;
