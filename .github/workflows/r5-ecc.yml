@@ -11,7 +11,7 @@ jobs:
       - name: Validate script and auto-archive on failure
         run: |
           bash -n tests/arm64-r5-ecc-screen.sh
-          python3 -m py_compile tests/arm64-r5-ecc-assess.py
+          python3 -m py_compile tests/arm64-r5-ecc-assess.py tests/arm64-r5-ecc-oracle.py
           bash tests/arm64-evidence-archive-test.sh
       - name: Build all five variants on native AArch64
         run: make -j2 arm64-r5-ecc-build
