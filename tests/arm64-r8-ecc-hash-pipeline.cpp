@@ -138,10 +138,8 @@ struct Engine{
   }
   // After 511 symmetric point pairs, one remaining boundary point (offset 0)
   // is added explicitly. Center is offset 512. No omissions or duplicate keys.
-  void produce_batch(uint64_t start,int W,Queue&queue,Stats&st,bool verify){
+  void produce_batch(uint64_t start,Point&center,int W,Queue&queue,Stats&st,bool verify){
     const auto begin=Clock::now();
-    Int k;k.SetInt64(start+HALF);
-    Point center=secp.ComputePublicKey(&k);
     std::array<Int,HALF+1> dx;
     for(int i=0;i<HALF;i++)dx[i].ModSub(&generator[i].x,&center.x);
     dx[HALF].ModSub(&twice_g.x,&center.x);
@@ -236,6 +234,19 @@ struct Engine{
     negative.y.ModMulK1(&s);
     negative.y.ModAdd(&generator[HALF-1].y);
     emit(0,negative);
+    // Exactly as in Keyhunt's incremental-center hot path: advance by
+    // 1024*G using the already inverted dx[512], NOT a new scalar multiply.
+    Int next_dy,next_s,next_sq;
+    next_dy.ModSub(&twice_g.y,&center.y);
+    next_s.ModMulK1(&next_dy,&dx[HALF]);
+    next_sq.ModSquareK1(&next_s);
+    Point next_center=center;
+    next_center.x.ModSub(&next_sq,&center.x);
+    next_center.x.ModSub(&twice_g.x);
+    next_center.y.ModSub(&twice_g.x,&next_center.x);
+    next_center.y.ModMulK1(&next_s);
+    next_center.y.ModSub(&twice_g.y);
+    center=next_center;
     if(verify){
       for(int i=0;i<GROUP;i++)if(seen[i]!=1)
         throw std::runtime_error("missing source candidate "+std::to_string(i));
@@ -315,8 +326,10 @@ static RunResult run(Engine&engine,int width,int queue_capacity,
   });
   try{
     uint64_t batch=0;
+    Int first;first.SetInt64(START+HALF);
+    Point center=engine.secp.ComputePublicKey(&first);
     do{
-      engine.produce_batch(START+batch*GROUP,width,q,result.producer,verify);
+      engine.produce_batch(START+batch*GROUP,center,width,q,result.producer,verify);
       batch++;
     }while(!verify&&nano(started,Clock::now())<seconds*1e9);
   }catch(...){
