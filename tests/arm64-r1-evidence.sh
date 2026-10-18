@@ -16,6 +16,10 @@ command -v objdump >/dev/null || { echo "objdump required" >&2; exit 2; }
 command -v sha256sum >/dev/null || { echo "sha256sum required" >&2; exit 2; }
 mkdir -p "$RUN/codegen/binaries" "$RUN/standalone" "$RUN/worker"
 chmod 700 "$RUN"
+# Generate a complete upload-ready tarball on normal exit AND on a test failure.
+# Installed after RUN exists so early argument errors do not create misleading archives.
+source "$REPO/tests/arm64-evidence-archive.sh"
+trap 'kh_archive_on_exit "$?" "$RUN" r1-cpu' EXIT
 
 # Capture build semantics from the *same* sources and flags as the binaries.
 {
@@ -37,7 +41,7 @@ if command -v vcgencmd >/dev/null 2>&1; then
   { vcgencmd measure_temp; vcgencmd measure_clock arm; vcgencmd get_throttled; } > "$RUN/host-before.txt"
 fi
 
-make -C "$REPO" arm64-r1
+make -C "$REPO" arm64-r1 2>&1 | tee "$RUN/build.log"
 if [[ "${KEYHUNT_R1_SKIP_TESTS:-0}" != 1 ]]; then
   make -C "$REPO" arm64-r1-test 2>&1 | tee "$RUN/correctness.log"
 fi
@@ -84,11 +88,7 @@ if command -v vcgencmd >/dev/null 2>&1; then
 fi
 ps -eo pid,ppid,stat,comm,%cpu,%mem --sort=-%cpu | head -40 > "$RUN/process-after.txt" || true
 python3 "$REPO/tests/arm64-r1-assess.py" "$RUN" | tee "$RUN/assessment.log"
-(
-  cd "$RUN"
-  find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS
-  sha256sum -c SHA256SUMS >/dev/null
-)
+# SHA256SUMS and archive are finalized by the EXIT trap.
 echo "Evidence at $RUN"
 echo "Review codegen disassembly, real completed-worker keys/s, PMU cycles/key,"
 echo "clocks, throttling and quality BEFORE accepting any optimization."
