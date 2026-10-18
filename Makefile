@@ -525,3 +525,55 @@ arm64-r1-test: arm64-r1
 	done
 	KEYHUNT_WORKER_BIN=keyhunt-worker-r1 python3 tests/arm64-worker-protocol.py
 	KEYHUNT_WORKER_BIN=keyhunt-worker-r1 python3 tests/keypool-puzzle20-exhaustive.py
+
+# R2 first microarchitectural experiment: NEON fixed-width RIPEMD160 ROL.
+# ECC, SHA256, Keypool protocol and the R1 worker are IDENTICAL to their
+# controls. Link a separate RIPEMD object to avoid touching normal builds.
+ARM64_R2_RIPEMD_CORE := $(filter-out build/arm64/hash/ripemd160_neon4.o,$(ARM64_FIELD_POINT_COMMON_OBJS))
+
+build/arm64/hash/ripemd160_neon4-rot-sli.o: hash/ripemd160_neon4.cpp
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -DKEYHUNT_RIPEMD_ROL_SLI -c $< -o $@
+
+build/arm64/hash/ripemd160_neon4-rot-sri.o: hash/ripemd160_neon4.cpp
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -DKEYHUNT_RIPEMD_ROL_SRI -c $< -o $@
+
+keyhunt-r2-ripemd-sli: $(ARM64_R2_RIPEMD_CORE) build/arm64/hash/ripemd160_neon4-rot-sli.o build/arm64/keyhunt-r1-all.o
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread
+
+keyhunt-r2-ripemd-sri: $(ARM64_R2_RIPEMD_CORE) build/arm64/hash/ripemd160_neon4-rot-sri.o build/arm64/keyhunt-r1-all.o
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread
+
+keyhunt-worker-r2-ripemd-sli: $(ARM64_R2_RIPEMD_CORE) build/arm64/hash/ripemd160_neon4-rot-sli.o build/arm64/keyhunt-pool-worker-r1.o
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread
+
+keyhunt-worker-r2-ripemd-sri: $(ARM64_R2_RIPEMD_CORE) build/arm64/hash/ripemd160_neon4-rot-sri.o build/arm64/keyhunt-pool-worker-r1.o
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread
+
+build/arm64/neon-target-check-r2-sli: tests/arm64-neon-target-check.cpp build/arm64/hash/ripemd160_neon4-rot-sli.o
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^
+
+build/arm64/neon-target-check-r2-sri: tests/arm64-neon-target-check.cpp build/arm64/hash/ripemd160_neon4-rot-sri.o
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^
+
+.PHONY: arm64-r2-ripemd arm64-r2-ripemd-test
+arm64-r2-ripemd: keyhunt-r1-all keyhunt-worker-r1 \
+  keyhunt-r2-ripemd-sli keyhunt-r2-ripemd-sri \
+  keyhunt-worker-r2-ripemd-sli keyhunt-worker-r2-ripemd-sri \
+  build/arm64/neon-target-check-r2-sli build/arm64/neon-target-check-r2-sri
+
+arm64-r2-ripemd-test: arm64-r2-ripemd
+	build/arm64/neon-target-check-r2-sli
+	build/arm64/neon-target-check-r2-sri
+	python3 tests/arm64-r2-ripemd-asm.py \
+	  keyhunt-r1-all keyhunt-r2-ripemd-sli keyhunt-r2-ripemd-sri
+	@set -e; for bin in keyhunt-r2-ripemd-sli keyhunt-r2-ripemd-sri; do \
+	  KEYHUNT_BIN=$$bin bash tests/arm64-smoke.sh; \
+	  KEYHUNT_BIN=$$bin python3 tests/arm64-vectors.py; \
+	  KEYHUNT_BIN=$$bin bash tests/arm64-solved-fixtures.sh; \
+	done
+	@set -e; for worker in keyhunt-worker-r2-ripemd-sli keyhunt-worker-r2-ripemd-sri; do \
+	  KEYHUNT_WORKER_BIN=$$worker python3 tests/arm64-worker-protocol.py; \
+	  KEYHUNT_WORKER_BIN=$$worker python3 tests/keypool-puzzle20-exhaustive.py; \
+	done
