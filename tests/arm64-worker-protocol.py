@@ -8,7 +8,7 @@ import subprocess
 import tempfile
 
 ROOT = Path(__file__).resolve().parent.parent
-BIN = ROOT / "keyhunt-worker"
+BIN = ROOT / os.environ.get("KEYHUNT_WORKER_BIN", "keyhunt-worker")
 TARGET = "1HsMJxNiV7TLxmoF6uJNkydxPFDog4NQum"  # solved puzzle 20
 SOLVED = 0xD2C55
 
