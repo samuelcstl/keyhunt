@@ -689,3 +689,20 @@ arm64-r9-pipeline-test: arm64-r9-pipeline
 	      --width $$width --queue 8 --verify --verify-batches 2; \
 	  done; \
 	done
+
+# R10: independent OS producer/consumer thread counts (CPU overcommit screen).
+# No production worker or persistent Keypool touched.
+build/arm64/r10-oversub-pipeline: tests/arm64-r10-oversub-pipeline.cpp \
+  $(ARM64_R2_RIPEMD_CORE) build/arm64/hash/ripemd160_neon4-rot-sri.o
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread
+
+.PHONY: arm64-r10-pipeline arm64-r10-pipeline-test
+arm64-r10-pipeline: build/arm64/r10-oversub-pipeline
+arm64-r10-pipeline-test: arm64-r10-pipeline
+	@set -e; for config in 1:1 3:1 3:2 4:2 6:2 8:4; do \
+	  p=$$(printf '%s' "$$config" | cut -d: -f1); \
+	  h=$$(printf '%s' "$$config" | cut -d: -f2); \
+	  build/arm64/r10-oversub-pipeline --producers $$p --consumers $$h \
+	    --width 16 --queue 16 --verify --verify-batches 2; \
+	done
