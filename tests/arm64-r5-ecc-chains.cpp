@@ -291,7 +291,29 @@ static double bench(const std::string&name,double seconds,uint64_t&checksum){
   run(.08);
   return run(seconds);
 }
+static void hex_word(const Word&w){
+  for(int i=3;i>=0;i--)
+    std::printf("%016llx",(unsigned long long)w[i]);
+}
 int main(int argc,char**argv){
+  if(argc>1&&std::string(argv[1])=="--oracle-vectors"){
+    unsigned n=argc>2?std::stoul(argv[2]):128;
+    std::printf("variant,lane,start,factor,result\n");
+    for(unsigned i=0;i<n;i++){
+      Two a=make_pair(),b=make_pair();
+      for(const auto&name:names()){
+        Two out{};
+        chain(name,a,b,out);
+        for(int lane=0;lane<2;lane++){
+          std::printf("%s,%d,",name.c_str(),lane);
+          hex_word(a[lane]);std::printf(",");
+          hex_word(b[lane]);std::printf(",");
+          hex_word(out[lane]);std::printf("\n");
+        }
+      }
+    }
+    return 0;
+  }
   if(argc>1&&std::string(argv[1])=="--verify"){
     verify(argc>2?std::stoul(argv[2]):2000);return 0;
   }
