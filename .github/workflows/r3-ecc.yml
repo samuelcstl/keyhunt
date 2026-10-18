@@ -10,7 +10,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Shell correctness
         run: |
-          bash -n tests/arm64-r3-ecc-bench.sh tests/arm64-evidence-archive.sh tests/arm64-evidence-archive-test.sh
+          bash -n tests/arm64-r3-ecc-bench.sh tests/arm64-r3-ecc-headtohead.sh tests/arm64-evidence-archive.sh tests/arm64-evidence-archive-test.sh
           bash tests/arm64-evidence-archive-test.sh
       - name: Build isolated paired ECC variants
         run: make -j2 arm64-r3-ecc
