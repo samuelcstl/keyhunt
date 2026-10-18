@@ -26,6 +26,9 @@ email: albertobsd@gmail.com
 #include "secp256k1/Point.h"
 #include "secp256k1/Int.h"
 #include "secp256k1/IntGroup.h"
+#if defined(KEYHUNT_R6_ECC_PAIR_MUL) || defined(KEYHUNT_R6_ECC_PAIR_FOLD)
+#include "secp256k1/field_k1_pair_ilp.h"
+#endif
 #ifdef KEYHUNT_ECC_NEON_SUB2
 #include "secp256k1/field_k1_neon_pair.h"
 #endif
@@ -2952,8 +2955,16 @@ void *thread_process(void *vargp)	{
 					dy.ModSub(&Gn[i].y, &startP.y);
 					dyn.ModSub(&r1_neg_generator_y[i], &startP.y);
 #endif
+#if defined(KEYHUNT_R6_ECC_PAIR_FOLD)
+					field_k1_arm64_mul2_fold(_s.bits64, ecc_minus_s.bits64,
+					                        dy.bits64, dyn.bits64, dx[i].bits64);
+#elif defined(KEYHUNT_R6_ECC_PAIR_MUL)
+					field_k1_arm64_mul2(_s.bits64, ecc_minus_s.bits64,
+					                   dy.bits64, dyn.bits64, dx[i].bits64);
+#else
 					_s.ModMulK1(&dy, &dx[i]);
 					ecc_minus_s.ModMulK1(&dyn, &dx[i]);
+#endif
 					_p.ModSquareK1(&_s);
 					ecc_minus_sq.ModSquareK1(&ecc_minus_s);
 #else
