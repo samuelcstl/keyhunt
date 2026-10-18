@@ -14,7 +14,7 @@ fi
 [[ ! -e "$RUN" ]] || { echo "Evidence path already exists: $RUN" >&2; exit 2; }
 command -v objdump >/dev/null || { echo "objdump required" >&2; exit 2; }
 command -v sha256sum >/dev/null || { echo "sha256sum required" >&2; exit 2; }
-mkdir -p "$RUN/codegen" "$RUN/standalone" "$RUN/worker"
+mkdir -p "$RUN/codegen/binaries" "$RUN/standalone" "$RUN/worker"
 chmod 700 "$RUN"
 
 # Capture build semantics from the *same* sources and flags as the binaries.
@@ -42,6 +42,7 @@ if [[ "${KEYHUNT_R1_SKIP_TESTS:-0}" != 1 ]]; then
   make -C "$REPO" arm64-r1-test 2>&1 | tee "$RUN/correctness.log"
 fi
 for binary in "${variants[@]}" keyhunt-worker keyhunt-worker-r1; do
+  cp "$REPO/$binary" "$RUN/codegen/binaries/$binary"
   sha256sum "$REPO/$binary" >> "$RUN/codegen/binaries.sha256"
   stat -c '%n %s bytes' "$REPO/$binary" >> "$RUN/codegen/sizes.txt"
   objdump -drwC "$REPO/$binary" > "$RUN/codegen/$binary.disasm"
@@ -76,6 +77,7 @@ if [[ "${KEYHUNT_R1_PROFILE:-0}" == 1 ]]; then
     KEYHUNT_PROFILE_SECONDS="${KEYHUNT_R1_PROFILE_SECONDS:-45}" \
       bash "$REPO/tests/arm64-deep-profile.sh" 2>&1 | tee "$RUN/codegen/profile-$binary.log"
   done
+  bash "$REPO/tests/arm64-r1-reannotate.sh" "$RUN" 2>&1 | tee "$RUN/codegen/reannotate.log"
 fi
 if command -v vcgencmd >/dev/null 2>&1; then
   { vcgencmd measure_temp; vcgencmd measure_clock arm; vcgencmd get_throttled; } > "$RUN/host-after.txt"
