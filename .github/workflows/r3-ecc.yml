@@ -9,7 +9,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Shell correctness
-        run: bash -n tests/arm64-r3-ecc-bench.sh
+        run: |
+          bash -n tests/arm64-r3-ecc-bench.sh tests/arm64-evidence-archive.sh tests/arm64-evidence-archive-test.sh
+          bash tests/arm64-evidence-archive-test.sh
       - name: Build isolated paired ECC variants
         run: make -j2 arm64-r3-ecc
       - name: Cryptographic and coverage correctness, without benchmarks
