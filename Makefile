@@ -466,3 +466,62 @@ arm64-worker: keyhunt-worker
 
 arm64-worker-test: arm64-worker
 	python3 tests/arm64-worker-protocol.py
+
+# CPU R1 source-level waste probes. Champion and production worker are unchanged.
+# Separate objects preserve exact source/flags A/B attribution on the Pi.
+ARM64_R1_FLAGS := -DKEYHUNT_INCREMENTAL_CENTER -DKEYHUNT_Y_PARITY \
+  -DKEYHUNT_POINT_ALGEBRA -DKEYHUNT_SINGLE_TARGET_DIRECT \
+  -DKEYHUNT_NEON_TARGET_COMPARE
+
+build/arm64/keyhunt-r1-stride4.o: keyhunt.cpp
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) $(ARM64_R1_FLAGS) -DKEYHUNT_R1_STRIDE4 -c $< -o $@
+
+build/arm64/keyhunt-r1-neg-y.o: keyhunt.cpp
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) $(ARM64_R1_FLAGS) -DKEYHUNT_R1_NEG_GN_Y -c $< -o $@
+
+build/arm64/keyhunt-r1-zero-mask.o: keyhunt.cpp
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) $(ARM64_R1_FLAGS) -DKEYHUNT_R1_ZERO_MASK -c $< -o $@
+
+build/arm64/keyhunt-r1-all.o: keyhunt.cpp
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) $(ARM64_R1_FLAGS) \
+	  -DKEYHUNT_R1_STRIDE4 -DKEYHUNT_R1_NEG_GN_Y -DKEYHUNT_R1_ZERO_MASK -c $< -o $@
+
+keyhunt-r1-stride4: $(ARM64_FIELD_POINT_COMMON_OBJS) build/arm64/keyhunt-r1-stride4.o
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread
+
+keyhunt-r1-neg-y: $(ARM64_FIELD_POINT_COMMON_OBJS) build/arm64/keyhunt-r1-neg-y.o
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread
+
+keyhunt-r1-zero-mask: $(ARM64_FIELD_POINT_COMMON_OBJS) build/arm64/keyhunt-r1-zero-mask.o
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread
+
+keyhunt-r1-all: $(ARM64_FIELD_POINT_COMMON_OBJS) build/arm64/keyhunt-r1-all.o
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread
+
+build/arm64/keyhunt-pool-worker-r1.o: keyhunt.cpp
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) $(ARM64_R1_FLAGS) \
+	  -DKEYHUNT_POOL_WORKER -DKEYHUNT_R1_STRIDE4 \
+	  -DKEYHUNT_R1_NEG_GN_Y -DKEYHUNT_R1_ZERO_MASK -c $< -o $@
+
+keyhunt-worker-r1: $(ARM64_FIELD_POINT_COMMON_OBJS) build/arm64/keyhunt-pool-worker-r1.o
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread
+
+.PHONY: arm64-r1 arm64-r1-test
+arm64-r1: arm64-neon-target arm64-worker \
+  keyhunt-r1-stride4 keyhunt-r1-neg-y keyhunt-r1-zero-mask keyhunt-r1-all \
+  keyhunt-worker-r1
+
+# Test independent flags individually; never overwrite the stable worker.
+arm64-r1-test: arm64-r1
+	@set -e; for bin in keyhunt-r1-stride4 keyhunt-r1-neg-y keyhunt-r1-zero-mask keyhunt-r1-all; do \
+	  KEYHUNT_BIN=$$bin bash tests/arm64-smoke.sh; \
+	  KEYHUNT_BIN=$$bin python3 tests/arm64-vectors.py; \
+	  KEYHUNT_BIN=$$bin bash tests/arm64-solved-fixtures.sh; \
+	done
+	KEYHUNT_WORKER_BIN=keyhunt-worker-r1 python3 tests/arm64-worker-protocol.py
+	KEYHUNT_WORKER_BIN=keyhunt-worker-r1 python3 tests/keypool-puzzle20-exhaustive.py
