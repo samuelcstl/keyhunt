@@ -24,6 +24,7 @@ trap 'kh_archive_on_exit "$?" "$RUN" r5-ecc' EXIT
   echo "mode=two-independent-secp256k1-residues; chain=8-MUL-each"
 } > "$RUN/provenance.txt"
 cp "$REPO/tests/arm64-r5-ecc-chains.cpp" "$RUN/codegen/source.cpp"
+cp "$REPO/tests/arm64-r5-ecc-oracle.py" "$RUN/codegen/oracle.py"
 cp "$REPO/secp256k1/field_k1_arm64.cpp" "$RUN/codegen/native-control.cpp"
 cp "$REPO/Makefile" "$RUN/codegen/Makefile"
 if command -v vcgencmd >/dev/null 2>&1; then
