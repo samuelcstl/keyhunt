@@ -659,3 +659,17 @@ build/arm64/r8-affine-batchscan: tests/arm64-r8-affine-batchscan.cpp \
 arm64-r8-affine: build/arm64/r8-affine-batchscan
 arm64-r8-affine-test: arm64-r8-affine
 	build/arm64/r8-affine-batchscan --verify
+
+# R8 real bounded ECC->HASH160 pipeline. Experiment-only independent
+# 2-thread executable, no Keypool/worker production linkage.
+build/arm64/r8-ecc-hash-pipeline: tests/arm64-r8-ecc-hash-pipeline.cpp \
+  $(ARM64_R2_RIPEMD_CORE) build/arm64/hash/ripemd160_neon4-rot-sri.o
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread
+
+.PHONY: arm64-r8-pipeline arm64-r8-pipeline-test
+arm64-r8-pipeline: build/arm64/r8-ecc-hash-pipeline
+arm64-r8-pipeline-test: arm64-r8-pipeline
+	@set -e; for width in 1 2 4 8 16; do \
+	  build/arm64/r8-ecc-hash-pipeline --width $$width --queue 8 --verify; \
+	done
