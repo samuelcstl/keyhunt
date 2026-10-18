@@ -1,0 +1,18 @@
+name: R6 paired ECC full-worker correctness
+on:
+  push:
+    branches: [experiment/pi5-r6-ecc-paired-mul-worker-20261018]
+  workflow_dispatch:
+jobs:
+  arm64-r6:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - name: Driver and archive syntax
+        run: |
+          bash -n tests/arm64-r6-ecc-screen.sh
+          bash tests/arm64-evidence-archive-test.sh
+      - name: Compile R3 control and R6 experimental workers
+        run: make -j2 arm64-r6-ecc
+      - name: Exact crypto and Keypool completeness
+        run: make arm64-r6-ecc-test
