@@ -26,6 +26,9 @@ email: albertobsd@gmail.com
 #include "secp256k1/Point.h"
 #include "secp256k1/Int.h"
 #include "secp256k1/IntGroup.h"
+#ifdef KEYHUNT_ECC_NEON_SUB2
+#include "secp256k1/field_k1_neon_pair.h"
+#endif
 #include "secp256k1/Random.h"
 
 #include "hash/sha256.h"
@@ -2781,6 +2784,9 @@ void *thread_process(void *vargp)	{
 	Int dyn;
 	Int _s;
 	Int _p;
+#ifdef KEYHUNT_ECC_PAIR_SCHED
+	Int ecc_minus_s, ecc_minus_sq;
+#endif
 	Point pp;
 	Point pn;
 	int i,l,pp_offset,pn_offset,hLength = (CPU_GRP_SIZE / 2 - 1);
@@ -2936,11 +2942,25 @@ void *thread_process(void *vargp)	{
 					pp = startP;
 					pn = startP;
 
-					// P = startP + i*G
+					// P = startP + i*G, P' = startP - i*G.
+					// Independent slopes computed before either square.
+#ifdef KEYHUNT_ECC_PAIR_SCHED
+#ifdef KEYHUNT_ECC_NEON_SUB2
+					ecc_modsub_2_neon(&dy, &dyn, &Gn[i].y,
+					                     &r1_neg_generator_y[i], &startP.y);
+#else
+					dy.ModSub(&Gn[i].y, &startP.y);
+					dyn.ModSub(&r1_neg_generator_y[i], &startP.y);
+#endif
+					_s.ModMulK1(&dy, &dx[i]);
+					ecc_minus_s.ModMulK1(&dyn, &dx[i]);
+					_p.ModSquareK1(&_s);
+					ecc_minus_sq.ModSquareK1(&ecc_minus_s);
+#else
 					dy.ModSub(&Gn[i].y,&pp.y);
-
 					_s.ModMulK1(&dy,&dx[i]);        // s = (p2.y-p1.y)*inverse(p2.x-p1.x);
 					_p.ModSquareK1(&_s);            // _p = pow2(s)
+#endif
 
 					#ifdef KEYHUNT_POINT_ALGEBRA
 					pp.x.ModSub(&_p, &pp.x); // (_p - oldX) mod p
@@ -2957,6 +2977,10 @@ void *thread_process(void *vargp)	{
 					}
 
 					// P = startP - i*G  , if (x,y) = i*G then (x,-y) = -i*G
+#ifdef KEYHUNT_ECC_PAIR_SCHED
+					_s.Set(&ecc_minus_s);
+					_p.Set(&ecc_minus_sq);
+#else
 #ifdef KEYHUNT_R1_NEG_GN_Y
 					dyn.ModSub(&r1_neg_generator_y[i], &pn.y);
 #else
@@ -2967,6 +2991,7 @@ void *thread_process(void *vargp)	{
 
 					_s.ModMulK1(&dyn,&dx[i]);      // s = (p2.y-p1.y)*inverse(p2.x-p1.x);
 					_p.ModSquareK1(&_s);            // _p = pow2(s)
+#endif  // KEYHUNT_ECC_PAIR_SCHED
 					#ifdef KEYHUNT_POINT_ALGEBRA
 					pn.x.ModSub(&_p, &pn.x);
 					#else

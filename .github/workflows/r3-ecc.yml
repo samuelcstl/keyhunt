@@ -1,0 +1,18 @@
+name: Pi5 paired ECC NEON experiment
+on:
+  push:
+    branches: [experiment/pi5-ecc-paired-neon-20261018]
+  workflow_dispatch:
+jobs:
+  arm64-ecc-pair:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - name: Shell correctness
+        run: |
+          bash -n tests/arm64-r3-ecc-bench.sh tests/arm64-r3-ecc-headtohead.sh tests/arm64-evidence-archive.sh tests/arm64-evidence-archive-test.sh
+          bash tests/arm64-evidence-archive-test.sh
+      - name: Build isolated paired ECC variants
+        run: make -j2 arm64-r3-ecc
+      - name: Cryptographic and coverage correctness, without benchmarks
+        run: make arm64-r3-ecc-test
