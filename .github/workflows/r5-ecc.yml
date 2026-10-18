@@ -1,0 +1,23 @@
+name: Pi5 R5 native ILP vs resident NEON field MUL chains
+on:
+  push:
+    branches: [experiment/pi5-r5-ecc-resident-ilp-20261018]
+  workflow_dispatch:
+jobs:
+  r5-arm64:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate script and auto-archive on failure
+        run: |
+          bash -n tests/arm64-r5-ecc-screen.sh
+          python3 -m py_compile tests/arm64-r5-ecc-assess.py
+          bash tests/arm64-evidence-archive-test.sh
+      - name: Build all five variants on native AArch64
+        run: make -j2 arm64-r5-ecc-build
+      - name: Verify full chained secp256k1 results
+        run: make arm64-r5-ecc-test
+      - name: Very short CI smoke (not physical Pi evidence)
+        run: |
+          build/arm64/ecc-r5-chains --seconds 0.12 --repeats 2 > /tmp/r5-ci.csv
+          python3 tests/arm64-r5-ecc-assess.py /tmp/r5-ci.csv
