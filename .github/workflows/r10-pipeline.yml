@@ -1,0 +1,21 @@
+name: Pi5 R10 oversubscribed ECC and HASH160 stage workers
+on:
+  push:
+    branches: [experiment/pi5-r10-oversubscribed-pipeline-20261018]
+  workflow_dispatch:
+jobs:
+  r10-arm64:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate benchmark script and assessment tool
+        run: |
+          bash -n tests/arm64-r10-oversub-screen.sh
+          python3 -m py_compile tests/arm64-r10-oversub-assess.py
+          bash tests/arm64-evidence-archive-test.sh
+      - name: Build actual multi-thread ECC + four-way HASH160 engine
+        run: make -j2 arm64-r10-pipeline
+      - name: Exact 2-12-thread point and target correctness across all consumers
+        run: make arm64-r10-pipeline-test
+      - name: Unqualified short smoke, not physical Pi5 performance
+        run: build/arm64/r10-oversub-pipeline --producers 4 --consumers 2 --width 16 --queue 32 --seconds 0.3
