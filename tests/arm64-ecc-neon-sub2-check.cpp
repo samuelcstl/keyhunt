@@ -8,14 +8,14 @@
 #include <cstdint>
 
 static uint64_t state=0x7c50e36d995aULL;
-static uint64_t rnd() {
+static uint64_t next_random64() {
   state ^= state >> 12;
   state ^= state << 25;
   state ^= state >> 27;
   return state * 0x2545F4914F6CDD1DULL;
 }
 static void random_field(Int& x,Int& p) {
-  for (int i=0;i<4;i++) x.bits64[i]=rnd();
+  for (int i=0;i<4;i++) x.bits64[i]=next_random64();
   x.bits64[4]=0;
   if (x.IsGreaterOrEqual(&p)) x.Sub(&p);
 }
