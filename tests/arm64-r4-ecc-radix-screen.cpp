@@ -29,7 +29,8 @@ static void reduce_k1(uint64_t out[5],const uint64_t t[8]){
   if(z[3]==UINT64_MAX&&z[2]==UINT64_MAX&&z[1]==UINT64_MAX&&z[0]>=P0){
     z[0]-=P0;z[1]=z[2]=z[3]=0;
   }
-  for(unsigned i=0;i<4;i++)out[i]=z[i];out[4]=0;
+  for(unsigned i=0;i<4;i++)out[i]=z[i];
+  out[4]=0;
 }
 template<unsigned Bits,unsigned N,typename Limb>
 static void unpack(const uint64_t in[5],Limb out[N]){
@@ -141,7 +142,8 @@ static void batch(const std::string& name,const Batch&a,const Batch&b,Batch&out)
 static uint64_t seed=0x71a7bcdfe319ULL;
 static uint64_t next64(){seed^=seed>>12;seed^=seed<<25;seed^=seed>>27;return seed*0x2545F4914F6CDD1DULL;}
 static void random_field(Word&x){
-  for(unsigned i=0;i<4;i++)x[i]=next64();x[4]=0;
+  for(unsigned i=0;i<4;i++)x[i]=next64();
+  x[4]=0;
   if(x[3]==UINT64_MAX&&x[2]==UINT64_MAX&&x[1]==UINT64_MAX&&x[0]>=P0){
     x[0]-=P0;x[1]=x[2]=x[3]=0;
   }
@@ -178,12 +180,24 @@ static void verify(unsigned trials){
 static double measure(const std::string&name,double seconds,uint64_t&checksum){
   constexpr size_t sets=128;
   std::array<Batch,sets> a{},b{};Batch out{};
-  for(size_t i=0;i<sets;i++)for(int j=0;j<4;j++){random_field(a[i][j]);random_field(b[i][j]);}
+  for(size_t i=0;i<sets;i++)for(int j=0;j<4;j++){
+    random_field(a[i][j]);random_field(b[i][j]);
+    // Any low-limb mutation remains canonical when the top limb < 2^63.
+    a[i][j][3]&=0x7fffffffffffffffULL;
+    b[i][j][3]&=0x7fffffffffffffffULL;
+  }
   auto loop=[&](double period)->double{
     volatile uint64_t sink=0;uint64_t done=0;
     auto start=std::chrono::steady_clock::now();double elapsed=0;
     do{
       for(size_t i=0;i<sets;i++){
+        // Prevent loop-invariant hoisting or precomputation of a repeated
+        // field multiplication. Every iteration actually changes both inputs.
+        // The same mutation is performed for ALL candidate implementations.
+        for(int j=0;j<4;j++){
+          a[i][j][0]+=0x9e3779b97f4a7c15ULL;
+          b[i][j][0]^=(a[i][j][0]>>13)|1ULL;
+        }
         batch(name,a[i],b[i],out);
         sink=sink^(out[0][0]+out[1][1]+out[2][2]+out[3][3]);
       }
