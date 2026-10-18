@@ -668,3 +668,4 @@ build/arm64/ecc-r5-chains: tests/arm64-r5-ecc-chains.cpp \
 arm64-r5-ecc-build: build/arm64/ecc-r5-chains
 arm64-r5-ecc-test: arm64-r5-ecc-build
 	build/arm64/ecc-r5-chains --verify 2000
+	python3 tests/arm64-r5-ecc-oracle.py
