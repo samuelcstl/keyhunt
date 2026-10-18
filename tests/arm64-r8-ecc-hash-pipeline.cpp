@@ -150,7 +150,7 @@ struct Engine{
     std::array<Packet,4> assembling{};
     for(auto& p:assembling)p.group=-1;
     std::array<uint8_t,GROUP>seen{};
-    auto emit=[&](uint16_t idx,const Point&pt){
+    auto emit=[&](uint16_t idx,Point&pt){
       if(verify){
         if(seen[idx]++)throw std::runtime_error("duplicate candidate in producer");
         Int scalar;scalar.SetInt64(start+idx);
