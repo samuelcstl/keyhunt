@@ -10,7 +10,12 @@ variants=(keyhunt-r1-all keyhunt-r2-ripemd-sli keyhunt-r2-ripemd-sri)
   echo "Tracked source dirty; refused non-reproducible run" >&2; exit 2;
 }
 mkdir -p "$RUN/codegen" "$RUN/standalone" "$RUN/workers"
+mkdir -p "$RUN/codegen/binaries" "$RUN/codegen/sources"
 chmod 700 "$RUN"
+# Generate a complete upload-ready tarball on normal exit AND on a test failure.
+# Installed after RUN exists so early argument errors do not create misleading archives.
+source "$REPO/tests/arm64-evidence-archive.sh"
+trap 'kh_archive_on_exit "$?" "$RUN" r2-ripemd' EXIT
 {
   date -u +%FT%TZ
   git -C "$REPO" rev-parse HEAD
@@ -19,9 +24,13 @@ chmod 700 "$RUN"
   g++ --version | head -1
   echo "compiler flags: $(grep '^ARM64_CXXFLAGS ' "$REPO/Makefile")"
 } > "$RUN/provenance.txt"
+cp "$REPO/Makefile" "$RUN/codegen/sources/Makefile"
+cp "$REPO/keyhunt.cpp" "$RUN/codegen/sources/keyhunt.cpp"
+cp "$REPO/hash/ripemd160_neon4.cpp" "$RUN/codegen/sources/"
 make -C "$REPO" arm64-r2-ripemd-test 2>&1 | tee "$RUN/correctness.log"
 for name in "${variants[@]}" keyhunt-worker-r1 keyhunt-worker-r2-ripemd-sli keyhunt-worker-r2-ripemd-sri; do
   sha256sum "$REPO/$name" >> "$RUN/codegen/binaries.sha256"
+  cp "$REPO/$name" "$RUN/codegen/binaries/$name"
 done
 for name in "${variants[@]}"; do
   objdump -drwC "$REPO/$name" > "$RUN/codegen/$name.disasm"
@@ -48,10 +57,6 @@ for suffix in sli sri; do
     --run-dir "$RUN/workers/$suffix" 2>&1 | tee "$RUN/worker-$suffix.log"
 done
 
-(
-  cd "$RUN"
-  find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS
-  sha256sum -c SHA256SUMS >/dev/null
-)
+# SHA256SUMS and archive are finalized by the EXIT trap.
 echo "Evidence directory: $RUN"
 echo "Only promote if full-worker keys/s and PMU cycles/key both improve; verify clocks/thermals."
