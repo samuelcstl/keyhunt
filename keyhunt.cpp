@@ -26,7 +26,8 @@ email: albertobsd@gmail.com
 #include "secp256k1/Point.h"
 #include "secp256k1/Int.h"
 #include "secp256k1/IntGroup.h"
-#if defined(KEYHUNT_R6_ECC_PAIR_MUL) || defined(KEYHUNT_R6_ECC_PAIR_FOLD)
+#if defined(KEYHUNT_R6_ECC_PAIR_MUL) || defined(KEYHUNT_R6_ECC_PAIR_FOLD) || \
+    defined(KEYHUNT_R7_ECC_PIPE_PAIR) || defined(KEYHUNT_R7_ECC_PIPE_FOLD)
 #include "secp256k1/field_k1_pair_ilp.h"
 #endif
 #ifdef KEYHUNT_ECC_NEON_SUB2
@@ -2955,10 +2956,10 @@ void *thread_process(void *vargp)	{
 					dy.ModSub(&Gn[i].y, &startP.y);
 					dyn.ModSub(&r1_neg_generator_y[i], &startP.y);
 #endif
-#if defined(KEYHUNT_R6_ECC_PAIR_FOLD)
+#if defined(KEYHUNT_R6_ECC_PAIR_FOLD) || defined(KEYHUNT_R7_ECC_PIPE_FOLD)
 					field_k1_arm64_mul2_fold(_s.bits64, ecc_minus_s.bits64,
 					                        dy.bits64, dyn.bits64, dx[i].bits64);
-#elif defined(KEYHUNT_R6_ECC_PAIR_MUL)
+#elif defined(KEYHUNT_R6_ECC_PAIR_MUL) || defined(KEYHUNT_R7_ECC_PIPE_PAIR)
 					field_k1_arm64_mul2(_s.bits64, ecc_minus_s.bits64,
 					                   dy.bits64, dyn.bits64, dx[i].bits64);
 #else
@@ -2981,11 +2982,13 @@ void *thread_process(void *vargp)	{
 					#endif
 					pp.x.ModSub(&Gn[i].x);           // rx = pow2(s) - p1.x - p2.x;
 
+#if !defined(KEYHUNT_R7_ECC_PIPE_SCHED) && !defined(KEYHUNT_R7_ECC_PIPE_PAIR) && !defined(KEYHUNT_R7_ECC_PIPE_FOLD)
 					if(calculate_y)	{
 						pp.y.ModSub(&Gn[i].x,&pp.x);
 						pp.y.ModMulK1(&_s);
 						pp.y.ModSub(&Gn[i].y);           // ry = - p2.y - s*(ret.x-p2.x);
 					}
+#endif
 
 					// P = startP - i*G  , if (x,y) = i*G then (x,-y) = -i*G
 #ifdef KEYHUNT_ECC_PAIR_SCHED
@@ -3011,11 +3014,37 @@ void *thread_process(void *vargp)	{
 					#endif
 					pn.x.ModSub(&Gn[i].x);          // rx = pow2(s) - p1.x - p2.x;
 
+#if defined(KEYHUNT_R7_ECC_PIPE_SCHED) || defined(KEYHUNT_R7_ECC_PIPE_PAIR) || defined(KEYHUNT_R7_ECC_PIPE_FOLD)
+					if (calculate_y) {
+						// Both slopes, both squares, both X coordinates complete.
+						// Preserve independence across Y, then store the pair.
+						Int y_plus_delta, y_minus_delta;
+						y_plus_delta.ModSub(&Gn[i].x, &pp.x);
+						y_minus_delta.ModSub(&Gn[i].x, &pn.x);
+#if defined(KEYHUNT_R7_ECC_PIPE_FOLD)
+						field_k1_arm64_mul2_independent_fold(
+							pp.y.bits64, pn.y.bits64,
+							y_plus_delta.bits64, _s.bits64,
+							y_minus_delta.bits64, ecc_minus_s.bits64);
+#elif defined(KEYHUNT_R7_ECC_PIPE_PAIR)
+						field_k1_arm64_mul2_independent(
+							pp.y.bits64, pn.y.bits64,
+							y_plus_delta.bits64, _s.bits64,
+							y_minus_delta.bits64, ecc_minus_s.bits64);
+#else
+						pp.y.ModMulK1(&y_plus_delta, &_s);
+						pn.y.ModMulK1(&y_minus_delta, &ecc_minus_s);
+#endif
+						pp.y.ModSub(&Gn[i].y);
+						pn.y.ModAdd(&Gn[i].y);
+					}
+#else
 					if(calculate_y)	{
 						pn.y.ModSub(&Gn[i].x,&pn.x);
 						pn.y.ModMulK1(&_s);
 						pn.y.ModAdd(&Gn[i].y);          // ry = - p2.y - s*(ret.x-p2.x);
 					}
+#endif
 
 					pp_offset = CPU_GRP_SIZE / 2 + (i + 1);
 					pn_offset = CPU_GRP_SIZE / 2 - (i + 1);
