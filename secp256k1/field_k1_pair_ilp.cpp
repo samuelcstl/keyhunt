@@ -39,15 +39,17 @@ static inline void finish(uint64_t out[5],const uint64_t t[8],bool early){
   for(unsigned k=0;k<4;k++)out[k]=z[k];
   out[4]=0;
 }
-static void mul2(uint64_t plus_out[5],uint64_t minus_out[5],
-                 const uint64_t plus[5],const uint64_t minus[5],
-                 const uint64_t common[5],bool early){
+static void mul2_general(uint64_t plus_out[5],uint64_t minus_out[5],
+                         const uint64_t plus[5],const uint64_t plus_b[5],
+                         const uint64_t minus[5],const uint64_t minus_b[5],
+                         bool early){
   uint64_t ta[8]={},tb[8]={};
   for(unsigned i=0;i<4;i++){
     U128 ca=0,cb=0;
     for(unsigned j=0;j<4;j++){
-      U128 va=U128(plus[j])*common[i]+ta[i+j]+ca;
-      U128 vb=U128(minus[j])*common[i]+tb[i+j]+cb;
+      // Four independent 64-bit products each turn: two per point.
+      U128 va=U128(plus[j])*plus_b[i]+ta[i+j]+ca;
+      U128 vb=U128(minus[j])*minus_b[i]+tb[i+j]+cb;
       ta[i+j]=uint64_t(va);ca=va>>64;
       tb[i+j]=uint64_t(vb);cb=vb>>64;
     }
@@ -56,6 +58,11 @@ static void mul2(uint64_t plus_out[5],uint64_t minus_out[5],
   }
   finish(plus_out,ta,early);
   finish(minus_out,tb,early);
+}
+static void mul2(uint64_t plus_out[5],uint64_t minus_out[5],
+                 const uint64_t plus[5],const uint64_t minus[5],
+                 const uint64_t common[5],bool early){
+  mul2_general(plus_out,minus_out,plus,common,minus,common,early);
 }
 }
 void field_k1_arm64_mul2(uint64_t out_plus[5],uint64_t out_minus[5],
@@ -67,4 +74,15 @@ void field_k1_arm64_mul2_fold(uint64_t out_plus[5],uint64_t out_minus[5],
                               const uint64_t plus[5],const uint64_t minus[5],
                               const uint64_t denominator_inverse[5]){
   mul2(out_plus,out_minus,plus,minus,denominator_inverse,true);
+}
+
+void field_k1_arm64_mul2_independent(uint64_t out0[5],uint64_t out1[5],
+                                    const uint64_t a0[5],const uint64_t b0[5],
+                                    const uint64_t a1[5],const uint64_t b1[5]){
+  mul2_general(out0,out1,a0,b0,a1,b1,false);
+}
+void field_k1_arm64_mul2_independent_fold(uint64_t out0[5],uint64_t out1[5],
+                                         const uint64_t a0[5],const uint64_t b0[5],
+                                         const uint64_t a1[5],const uint64_t b1[5]){
+  mul2_general(out0,out1,a0,b0,a1,b1,true);
 }

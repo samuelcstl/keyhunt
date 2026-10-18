@@ -26,7 +26,11 @@ email: albertobsd@gmail.com
 #include "secp256k1/Point.h"
 #include "secp256k1/Int.h"
 #include "secp256k1/IntGroup.h"
-#if defined(KEYHUNT_R6_ECC_PAIR_MUL) || defined(KEYHUNT_R6_ECC_PAIR_FOLD)
+#ifdef KEYHUNT_R7_STAGE_STATS
+#include <chrono>
+#endif
+#if defined(KEYHUNT_R6_ECC_PAIR_MUL) || defined(KEYHUNT_R6_ECC_PAIR_FOLD) || \
+    defined(KEYHUNT_R7_ECC_PIPE_PAIR) || defined(KEYHUNT_R7_ECC_PIPE_FOLD)
 #include "secp256k1/field_k1_pair_ilp.h"
 #endif
 #ifdef KEYHUNT_ECC_NEON_SUB2
@@ -2790,6 +2794,13 @@ void *thread_process(void *vargp)	{
 #ifdef KEYHUNT_ECC_PAIR_SCHED
 	Int ecc_minus_s, ecc_minus_sq;
 #endif
+#if defined(KEYHUNT_R7_ECC_PIPE_SCHED) || defined(KEYHUNT_R7_ECC_PIPE_PAIR) || defined(KEYHUNT_R7_ECC_PIPE_FOLD)
+	Int y_plus_delta, y_minus_delta;
+#endif
+#ifdef KEYHUNT_R7_STAGE_STATS
+	using R7Clock=std::chrono::steady_clock;
+	uint64_t r7_inv_ns=0,r7_points_ns=0,r7_hash_ns=0,r7_batches=0;
+#endif
 	Point pp;
 	Point pn;
 	int i,l,pp_offset,pn_offset,hLength = (CPU_GRP_SIZE / 2 - 1);
@@ -2931,6 +2942,9 @@ void *thread_process(void *vargp)	{
 				}
 #endif
 
+#ifdef KEYHUNT_R7_STAGE_STATS
+				auto r7_start=R7Clock::now();
+#endif
 				for(i = 0; i < hLength; i++) {
 					dx[i].ModSub(&Gn[i].x,&startP.x);
 				}
@@ -2938,7 +2952,9 @@ void *thread_process(void *vargp)	{
 				dx[i].ModSub(&Gn[i].x,&startP.x);  // For the first point
 				dx[i + 1].ModSub(&_2Gn.x,&startP.x); // For the next center point
 				grp->ModInv();
-
+#ifdef KEYHUNT_R7_STAGE_STATS
+				auto r7_after_inverse=R7Clock::now();
+#endif
 				pts[CPU_GRP_SIZE / 2] = startP;
 
 				for(i = 0; i<hLength; i++) {
@@ -2955,10 +2971,10 @@ void *thread_process(void *vargp)	{
 					dy.ModSub(&Gn[i].y, &startP.y);
 					dyn.ModSub(&r1_neg_generator_y[i], &startP.y);
 #endif
-#if defined(KEYHUNT_R6_ECC_PAIR_FOLD)
+#if defined(KEYHUNT_R6_ECC_PAIR_FOLD) || defined(KEYHUNT_R7_ECC_PIPE_FOLD)
 					field_k1_arm64_mul2_fold(_s.bits64, ecc_minus_s.bits64,
 					                        dy.bits64, dyn.bits64, dx[i].bits64);
-#elif defined(KEYHUNT_R6_ECC_PAIR_MUL)
+#elif defined(KEYHUNT_R6_ECC_PAIR_MUL) || defined(KEYHUNT_R7_ECC_PIPE_PAIR)
 					field_k1_arm64_mul2(_s.bits64, ecc_minus_s.bits64,
 					                   dy.bits64, dyn.bits64, dx[i].bits64);
 #else
@@ -2981,15 +2997,19 @@ void *thread_process(void *vargp)	{
 					#endif
 					pp.x.ModSub(&Gn[i].x);           // rx = pow2(s) - p1.x - p2.x;
 
+#if !defined(KEYHUNT_R7_ECC_PIPE_SCHED) && !defined(KEYHUNT_R7_ECC_PIPE_PAIR) && !defined(KEYHUNT_R7_ECC_PIPE_FOLD)
 					if(calculate_y)	{
 						pp.y.ModSub(&Gn[i].x,&pp.x);
 						pp.y.ModMulK1(&_s);
 						pp.y.ModSub(&Gn[i].y);           // ry = - p2.y - s*(ret.x-p2.x);
 					}
+#endif
 
 					// P = startP - i*G  , if (x,y) = i*G then (x,-y) = -i*G
 #ifdef KEYHUNT_ECC_PAIR_SCHED
+#if !defined(KEYHUNT_R7_ECC_PIPE_SCHED) && !defined(KEYHUNT_R7_ECC_PIPE_PAIR) && !defined(KEYHUNT_R7_ECC_PIPE_FOLD)
 					_s.Set(&ecc_minus_s);
+#endif
 					_p.Set(&ecc_minus_sq);
 #else
 #ifdef KEYHUNT_R1_NEG_GN_Y
@@ -3011,11 +3031,36 @@ void *thread_process(void *vargp)	{
 					#endif
 					pn.x.ModSub(&Gn[i].x);          // rx = pow2(s) - p1.x - p2.x;
 
+#if defined(KEYHUNT_R7_ECC_PIPE_SCHED) || defined(KEYHUNT_R7_ECC_PIPE_PAIR) || defined(KEYHUNT_R7_ECC_PIPE_FOLD)
+					if (calculate_y) {
+						// Both slopes, both squares, both X coordinates complete.
+						// Preserve independence across Y, then store the pair.
+						y_plus_delta.ModSub(&Gn[i].x, &pp.x);
+						y_minus_delta.ModSub(&Gn[i].x, &pn.x);
+#if defined(KEYHUNT_R7_ECC_PIPE_FOLD)
+						field_k1_arm64_mul2_independent_fold(
+							pp.y.bits64, pn.y.bits64,
+							y_plus_delta.bits64, _s.bits64,
+							y_minus_delta.bits64, ecc_minus_s.bits64);
+#elif defined(KEYHUNT_R7_ECC_PIPE_PAIR)
+						field_k1_arm64_mul2_independent(
+							pp.y.bits64, pn.y.bits64,
+							y_plus_delta.bits64, _s.bits64,
+							y_minus_delta.bits64, ecc_minus_s.bits64);
+#else
+						pp.y.ModMulK1(&y_plus_delta, &_s);
+						pn.y.ModMulK1(&y_minus_delta, &ecc_minus_s);
+#endif
+						pp.y.ModSub(&Gn[i].y);
+						pn.y.ModAdd(&Gn[i].y);
+					}
+#else
 					if(calculate_y)	{
 						pn.y.ModSub(&Gn[i].x,&pn.x);
 						pn.y.ModMulK1(&_s);
 						pn.y.ModAdd(&Gn[i].y);          // ry = - p2.y - s*(ret.x-p2.x);
 					}
+#endif
 
 					pp_offset = CPU_GRP_SIZE / 2 + (i + 1);
 					pn_offset = CPU_GRP_SIZE / 2 - (i + 1);
@@ -3098,6 +3143,9 @@ void *thread_process(void *vargp)	{
 					endomorphism_beta2[0].x.ModMulK1(&pn.x, &beta2);
 				}
 								
+#ifdef KEYHUNT_R7_STAGE_STATS
+				auto r7_after_points=R7Clock::now();
+#endif
 				for(j = 0; j < CPU_GRP_SIZE/4;j++){
 #ifdef KEYHUNT_NEON_TARGET_COMPARE
 					uint8_t neon_target_matches = 0x0F;
@@ -3521,6 +3569,16 @@ secp->GetHash160_fromX(P2PKH,0x02,&pts[(j*4)].x,&pts[(j*4)+1].x,&pts[(j*4)+2].x,
 				}
 				*/
 
+#ifdef KEYHUNT_R7_STAGE_STATS
+				auto r7_after_hash=R7Clock::now();
+				r7_inv_ns+=std::chrono::duration_cast<std::chrono::nanoseconds>(
+					r7_after_inverse-r7_start).count();
+				r7_points_ns+=std::chrono::duration_cast<std::chrono::nanoseconds>(
+					r7_after_points-r7_after_inverse).count();
+				r7_hash_ns+=std::chrono::duration_cast<std::chrono::nanoseconds>(
+					r7_after_hash-r7_after_points).count();
+				++r7_batches;
+#endif
 				steps[thread_number]++;
 #ifdef KEYHUNT_POOL_WORKER
         // Emit only after the whole four-lane HASH160 group was evaluated.
@@ -3560,6 +3618,14 @@ secp->GetHash160_fromX(P2PKH,0x02,&pts[(j*4)].x,&pts[(j*4)+1].x,&pts[(j*4)+2].x,
 #else
   } while(continue_flag);
 	ends[thread_number] = 1;
+#endif
+#ifdef KEYHUNT_R7_STAGE_STATS
+	if (getenv("KEYHUNT_R7_STAGE_PROFILE")) {
+		fprintf(stderr,"R7_STAGES worker=%d batches=%" PRIu64
+		        " inverse_ns=%" PRIu64 " points_ns=%" PRIu64
+		        " hash_scan_ns=%" PRIu64 "\n",
+		        thread_number,r7_batches,r7_inv_ns,r7_points_ns,r7_hash_ns);
+	}
 #endif
   delete grp;
 	return NULL;

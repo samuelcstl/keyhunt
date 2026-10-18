@@ -731,3 +731,72 @@ arm64-r6-ecc-test: arm64-r6-ecc
 	  KEYHUNT_WORKER_BIN=$$worker python3 tests/arm64-worker-protocol.py; \
 	  KEYHUNT_WORKER_BIN=$$worker python3 tests/keypool-puzzle20-exhaustive.py; \
 	done
+
+# R7: test persistence of PLUS/MINUS independent ECC computation into both
+# X and Y coordinates; immutable R3 worker is the control.
+R7_ECC_COMMON := $(R3_ECC_FLAGS)
+R7_SHARED := $(R6_SHARED) $(R6_PAIR)
+
+build/arm64/keyhunt-r7-sched.o: keyhunt.cpp
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) $(R7_ECC_COMMON) -DKEYHUNT_R7_ECC_PIPE_SCHED -c $< -o $@
+
+build/arm64/keyhunt-r7-pair.o: keyhunt.cpp
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) $(R7_ECC_COMMON) -DKEYHUNT_R7_ECC_PIPE_PAIR -c $< -o $@
+
+build/arm64/keyhunt-r7-fold.o: keyhunt.cpp
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) $(R7_ECC_COMMON) -DKEYHUNT_R7_ECC_PIPE_FOLD -c $< -o $@
+
+build/arm64/keyhunt-r7-sched-worker.o: keyhunt.cpp
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) $(R7_ECC_COMMON) -DKEYHUNT_POOL_WORKER -DKEYHUNT_R7_ECC_PIPE_SCHED -DKEYHUNT_R7_STAGE_STATS -c $< -o $@
+
+build/arm64/keyhunt-r7-pair-worker.o: keyhunt.cpp
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) $(R7_ECC_COMMON) -DKEYHUNT_POOL_WORKER -DKEYHUNT_R7_ECC_PIPE_PAIR -DKEYHUNT_R7_STAGE_STATS -c $< -o $@
+
+build/arm64/keyhunt-r7-fold-worker.o: keyhunt.cpp
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) $(R7_ECC_COMMON) -DKEYHUNT_POOL_WORKER -DKEYHUNT_R7_ECC_PIPE_FOLD -DKEYHUNT_R7_STAGE_STATS -c $< -o $@
+
+keyhunt-r7-ecc-sched: $(R6_SHARED) build/arm64/keyhunt-r7-sched.o
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread
+
+keyhunt-r7-ecc-pair: $(R7_SHARED) build/arm64/keyhunt-r7-pair.o
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread
+
+keyhunt-r7-ecc-fold: $(R7_SHARED) build/arm64/keyhunt-r7-fold.o
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread
+
+keyhunt-worker-r7-ecc-sched: $(R6_SHARED) build/arm64/keyhunt-r7-sched-worker.o
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread
+
+keyhunt-worker-r7-ecc-pair: $(R7_SHARED) build/arm64/keyhunt-r7-pair-worker.o
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread
+
+keyhunt-worker-r7-ecc-fold: $(R7_SHARED) build/arm64/keyhunt-r7-fold-worker.o
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread
+
+build/arm64/ecc-r7-pair-oracle: tests/arm64-r7-pair-oracle.cpp \
+  build/arm64/secp256k1/field_k1_pair_ilp.o build/arm64/secp256k1/field_k1_arm64.o
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^
+
+.PHONY: arm64-r7-ecc arm64-r7-ecc-test
+arm64-r7-ecc: keyhunt-worker-r3-ecc-sched \
+  keyhunt-r7-ecc-sched keyhunt-r7-ecc-pair keyhunt-r7-ecc-fold \
+  keyhunt-worker-r7-ecc-sched keyhunt-worker-r7-ecc-pair keyhunt-worker-r7-ecc-fold \
+  build/arm64/ecc-r7-pair-oracle
+
+arm64-r7-ecc-test: arm64-r7-ecc
+	build/arm64/ecc-r7-pair-oracle
+	@set -e; for binary in keyhunt-r7-ecc-sched keyhunt-r7-ecc-pair keyhunt-r7-ecc-fold; do \
+	  KEYHUNT_BIN=$$binary bash tests/arm64-smoke.sh; \
+	  KEYHUNT_BIN=$$binary python3 tests/arm64-vectors.py; \
+	  KEYHUNT_BIN=$$binary bash tests/arm64-solved-fixtures.sh; \
+	done
+	@set -e; for worker in keyhunt-worker-r7-ecc-sched keyhunt-worker-r7-ecc-pair keyhunt-worker-r7-ecc-fold; do \
+	  KEYHUNT_WORKER_BIN=$$worker python3 tests/arm64-worker-protocol.py; \
+	  KEYHUNT_WORKER_BIN=$$worker python3 tests/keypool-puzzle20-exhaustive.py; \
+	done
