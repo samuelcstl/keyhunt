@@ -332,7 +332,7 @@ static RunResult run(Engine&consumer_engine,int width,int queue_capacity,
   // Each producer's scalar range is disjoint, separated by 2^32 keys.
   // Within its assigned range it uses the SAME incremental +1024G center.
   std::vector<std::unique_ptr<Engine>> engines;
-  std::vector<Point> centers(size_t(producers));
+  std::vector<Point> centers(static_cast<size_t>(producers));
   for(int id=0;id<producers;id++){
     auto src=std::make_unique<Engine>();
     src->init_minus();
@@ -342,7 +342,7 @@ static RunResult run(Engine&consumer_engine,int width,int queue_capacity,
   }
   Queue q(queue_capacity);
   RunResult result{};
-  std::vector<Stats> local_stats(size_t(producers));
+  std::vector<Stats> local_stats(static_cast<size_t>(producers));
   std::mutex error_mutex;
   std::exception_ptr first_error;
   auto fail=[&](){
