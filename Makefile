@@ -673,3 +673,19 @@ arm64-r8-pipeline-test: arm64-r8-pipeline
 	@set -e; for width in 1 2 4 8 16; do \
 	  build/arm64/r8-ecc-hash-pipeline --width $$width --queue 8 --verify; \
 	done
+
+# R9: measured multi-producer ECC -> one HASH160 stage, experimental only.
+build/arm64/r9-multi-pipeline: tests/arm64-r9-multi-pipeline.cpp \
+  $(ARM64_R2_RIPEMD_CORE) build/arm64/hash/ripemd160_neon4-rot-sri.o
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread
+
+.PHONY: arm64-r9-pipeline arm64-r9-pipeline-test
+arm64-r9-pipeline: build/arm64/r9-multi-pipeline
+arm64-r9-pipeline-test: arm64-r9-pipeline
+	@set -e; for producers in 1 2 3; do \
+	  for width in 1 8 16; do \
+	    build/arm64/r9-multi-pipeline --producers $$producers \
+	      --width $$width --queue 8 --verify --verify-batches 2; \
+	  done; \
+	done
