@@ -643,3 +643,33 @@ arm64-r3-ecc-test: arm64-r3-ecc
 	  KEYHUNT_WORKER_BIN=$$worker python3 tests/arm64-worker-protocol.py; \
 	  KEYHUNT_WORKER_BIN=$$worker python3 tests/keypool-puzzle20-exhaustive.py; \
 	done
+
+# R8 isolated batch-affine inversion throughput, one inverse across
+# 513 denominators, segmented W=1,2,4,8,16 independent prefix/suffix chains.
+# No Keyhunt worker or production database mutation.
+build/arm64/r8-affine-batchscan: tests/arm64-r8-affine-batchscan.cpp \
+  build/arm64/secp256k1/Int.o \
+  build/arm64/secp256k1/IntMod-field-mul-sqr.o \
+  build/arm64/secp256k1/Random.o \
+  build/arm64/secp256k1/IntGroup.o \
+  build/arm64/secp256k1/field_k1_arm64.o
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^
+
+.PHONY: arm64-r8-affine arm64-r8-affine-test
+arm64-r8-affine: build/arm64/r8-affine-batchscan
+arm64-r8-affine-test: arm64-r8-affine
+	build/arm64/r8-affine-batchscan --verify
+
+# R8 real bounded ECC->HASH160 pipeline. Experiment-only independent
+# 2-thread executable, no Keypool/worker production linkage.
+build/arm64/r8-ecc-hash-pipeline: tests/arm64-r8-ecc-hash-pipeline.cpp \
+  $(ARM64_R2_RIPEMD_CORE) build/arm64/hash/ripemd160_neon4-rot-sri.o
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread
+
+.PHONY: arm64-r8-pipeline arm64-r8-pipeline-test
+arm64-r8-pipeline: build/arm64/r8-ecc-hash-pipeline
+arm64-r8-pipeline-test: arm64-r8-pipeline
+	@set -e; for width in 1 2 4 8 16; do \
+	  build/arm64/r8-ecc-hash-pipeline --width $$width --queue 8 --verify; \
+	done
