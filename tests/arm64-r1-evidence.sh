@@ -32,6 +32,7 @@ chmod 700 "$RUN"
 cp "$REPO/Makefile" "$RUN/codegen/Makefile.snapshot"
 cp "$REPO/keyhunt.cpp" "$RUN/codegen/keyhunt.cpp.snapshot"
 if [[ -r /proc/cpuinfo ]]; then cp /proc/cpuinfo "$RUN/cpuinfo.txt"; fi
+ps -eo pid,ppid,stat,comm,%cpu,%mem --sort=-%cpu | head -40 > "$RUN/process-before.txt" || true
 if command -v vcgencmd >/dev/null 2>&1; then
   { vcgencmd measure_temp; vcgencmd measure_clock arm; vcgencmd get_throttled; } > "$RUN/host-before.txt"
 fi
@@ -79,6 +80,8 @@ fi
 if command -v vcgencmd >/dev/null 2>&1; then
   { vcgencmd measure_temp; vcgencmd measure_clock arm; vcgencmd get_throttled; } > "$RUN/host-after.txt"
 fi
+ps -eo pid,ppid,stat,comm,%cpu,%mem --sort=-%cpu | head -40 > "$RUN/process-after.txt" || true
+python3 "$REPO/tests/arm64-r1-assess.py" "$RUN" | tee "$RUN/assessment.log"
 (
   cd "$RUN"
   find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS
