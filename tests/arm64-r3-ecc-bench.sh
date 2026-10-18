@@ -11,7 +11,12 @@ variants=(keyhunt-r2-ripemd-sri keyhunt-r3-ecc-sched keyhunt-r3-ecc-neon)
 }
 [[ ! -e "$RUN" ]] || { echo "Evidence path exists: $RUN" >&2; exit 2; }
 mkdir -p "$RUN"/{codegen,standalone,workers}
+mkdir -p "$RUN/codegen/binaries"
 chmod 700 "$RUN"
+# Generate a complete upload-ready tarball on normal exit AND on a test failure.
+# Installed after RUN exists so early argument errors do not create misleading archives.
+source "$REPO/tests/arm64-evidence-archive.sh"
+trap 'kh_archive_on_exit "$?" "$RUN" r3-ecc' EXIT
 {
   date -u +%FT%TZ
   git -C "$REPO" rev-parse HEAD
@@ -25,11 +30,19 @@ chmod 700 "$RUN"
     vcgencmd measure_clock arm
   fi
 } > "$RUN/provenance.txt"
+# Capture exact experiment sources alongside measurements, for offline audit.
+mkdir -p "$RUN/codegen/sources"
+cp "$REPO/Makefile" "$RUN/codegen/sources/Makefile"
+cp "$REPO/keyhunt.cpp" "$RUN/codegen/sources/keyhunt.cpp"
+cp "$REPO/secp256k1/field_k1_neon_pair.cpp" "$RUN/codegen/sources/"
+cp "$REPO/secp256k1/field_k1_arm64.cpp" "$RUN/codegen/sources/"
+cp "$REPO/secp256k1/IntMod.cpp" "$RUN/codegen/sources/"
 make -C "$REPO" -j4 arm64-r3-ecc 2>&1 | tee "$RUN/build.log"
 make -C "$REPO" arm64-r3-ecc-test 2>&1 | tee "$RUN/correctness.log"
 for binary in "${variants[@]}" \
   keyhunt-worker-r2-ripemd-sri keyhunt-worker-r3-ecc-sched keyhunt-worker-r3-ecc-neon; do
   sha256sum "$REPO/$binary" >> "$RUN/codegen/binaries.sha256"
+  cp "$REPO/$binary" "$RUN/codegen/binaries/$binary"
   objdump -drwC "$REPO/$binary" > "$RUN/codegen/$binary.disasm"
 done
 # Existing stable full-chain 4-thread PMU harness and heated reversed ABBA sweeps.
@@ -48,10 +61,6 @@ for suffix in sched neon; do
     --repeats "${KEYHUNT_R3_WORKER_REPEATS:-3}" \
     --run-dir "$RUN/workers/$suffix" 2>&1 | tee "$RUN/worker-$suffix.log"
 done
-(
-  cd "$RUN"
-  find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS
-  sha256sum -c SHA256SUMS >/dev/null
-)
+# SHA256SUMS and archive are finalized by the EXIT trap.
 echo "ECC R3 evidence: $RUN"
 echo "Compare completed worker keys/s and cycles/key. Lower instruction count alone is insufficient."
