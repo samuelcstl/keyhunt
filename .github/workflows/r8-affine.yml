@@ -1,0 +1,23 @@
+name: R8 affine batch 1/2/4/8/16-chain correctness
+on:
+  push:
+    branches: [experiment/pi5-r8-wide-ecc-pipeline-design-20261018]
+  workflow_dispatch:
+jobs:
+  arm64-r8-affine:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify runner syntax and archiver
+        run: |
+          bash -n tests/arm64-r8-affine-screen.sh
+          python3 -m py_compile tests/arm64-r8-affine-assess.py
+          bash tests/arm64-evidence-archive-test.sh
+      - name: Compile ARM64 Montgomery batchscan width variants
+        run: make -j2 arm64-r8-affine
+      - name: 40 full batches, exact inverse equality and independent product proof
+        run: make arm64-r8-affine-test
+      - name: Microbenchmark smoke only, not Pi physical evidence
+        run: |
+          build/arm64/r8-affine-batchscan --seconds 0.15 --repeats 2 > /tmp/r8-affine.csv
+          python3 tests/arm64-r8-affine-assess.py /tmp/r8-affine.csv
