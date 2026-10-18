@@ -751,15 +751,15 @@ build/arm64/keyhunt-r7-fold.o: keyhunt.cpp
 
 build/arm64/keyhunt-r7-sched-worker.o: keyhunt.cpp
 	@mkdir -p $(dir $@)
-	$(ARM64_CXX) $(ARM64_CXXFLAGS) $(R7_ECC_COMMON) -DKEYHUNT_POOL_WORKER -DKEYHUNT_R7_ECC_PIPE_SCHED -c $< -o $@
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) $(R7_ECC_COMMON) -DKEYHUNT_POOL_WORKER -DKEYHUNT_R7_ECC_PIPE_SCHED -DKEYHUNT_R7_STAGE_STATS -c $< -o $@
 
 build/arm64/keyhunt-r7-pair-worker.o: keyhunt.cpp
 	@mkdir -p $(dir $@)
-	$(ARM64_CXX) $(ARM64_CXXFLAGS) $(R7_ECC_COMMON) -DKEYHUNT_POOL_WORKER -DKEYHUNT_R7_ECC_PIPE_PAIR -c $< -o $@
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) $(R7_ECC_COMMON) -DKEYHUNT_POOL_WORKER -DKEYHUNT_R7_ECC_PIPE_PAIR -DKEYHUNT_R7_STAGE_STATS -c $< -o $@
 
 build/arm64/keyhunt-r7-fold-worker.o: keyhunt.cpp
 	@mkdir -p $(dir $@)
-	$(ARM64_CXX) $(ARM64_CXXFLAGS) $(R7_ECC_COMMON) -DKEYHUNT_POOL_WORKER -DKEYHUNT_R7_ECC_PIPE_FOLD -c $< -o $@
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) $(R7_ECC_COMMON) -DKEYHUNT_POOL_WORKER -DKEYHUNT_R7_ECC_PIPE_FOLD -DKEYHUNT_R7_STAGE_STATS -c $< -o $@
 
 keyhunt-r7-ecc-sched: $(R6_SHARED) build/arm64/keyhunt-r7-sched.o
 	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread
