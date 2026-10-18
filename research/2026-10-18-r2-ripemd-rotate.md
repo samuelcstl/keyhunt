@@ -91,3 +91,33 @@ speedup before evidence.
 
 GPU/QPU HASH160 investigation remains deferred; it cannot be equated
 with the separate ~14MH/s SHA256d QPU engine.
+
+## First ARM64 code-generation and correctness result
+
+GitHub ARM64 workflow [run 39127314574](https://github.com/samuelcstl/keyhunt/actions/runs/39127314574)
+completed **SUCCESS** for codegen and all cryptographic correctness checks.
+These are ARM64 runner results, **not Pi 5 throughput measurements**.
+
+| Linked HASH160 function | All A64 instructions | SHL | USHR | ORR | SLI | SRI |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| R1 baseline | 2183 | 344 | 326 | 332 | 0 | 0 |
+| R2 `vsliq` | 1880 | 28 | 326 | 15 | 318 | 0 |
+| R2 `vsriq` | 1880 | 344 | 10 | 15 | 0 | 318 |
+
+The alternative instruction forms both save **303 machine instructions**
+(13.88% of the whole inlined function, not of the entire Keyhunt binary).
+While 318 insertion opcodes replace portions of ~316 SHL/USHR+ORR
+patterns, other addressing/reordering differences account for the exact
+303-insn net saving. No speedup from instruction count alone is assumed.
+
+Both variants passed 20,480 exact four-lane target-mask checks,
+Puzzle #20 recovered key, independent parity vectors (71/140/256-bit),
+upstream solved fixtures, persistent worker protocol, and complete
+512-group/524,288-key post-HASH160 Puzzle #20 coverage including
+replay behavior. A second workflow run may follow the documentation
+commit; the linked run above was successful on the same source
+implementation.
+
+**Next gate:** physical Pi 5, warmed-up reverse-order full-worker
+A/B of R1 vs SLI and R1 vs SRI, sustained PMU cycles/key and
+keys/s; production remains unmodified.
