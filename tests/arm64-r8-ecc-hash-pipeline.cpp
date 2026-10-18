@@ -272,6 +272,23 @@ struct Engine{
       uint8_t mask=secp.GetHash160_fromXYParityTarget(P2PKH,
         &points[0],&points[1],&points[2],&points[3],target);
       st.hash_ns+=nano(h0,Clock::now());
+      if(verify){
+        uint8_t actual[4][20]{},reference[20]{};
+        secp.GetHash160_fromXYParity(P2PKH,&points[0],&points[1],
+                                      &points[2],&points[3],
+                                      actual[0],actual[1],actual[2],actual[3]);
+        for(int lane=0;lane<4;lane++){
+          Int scalar;scalar.SetInt64(p.start_key+p.offset[lane]);
+          Point pub=secp.ComputePublicKey(&scalar);
+          secp.GetHash160(P2PKH,true,pub,reference);
+          if(std::memcmp(reference,actual[lane],20)!=0)
+            throw std::runtime_error("HASH160 digest mismatch at key offset "+
+                                     std::to_string(p.offset[lane]));
+          const bool match=std::memcmp(reference,target,20)==0;
+          if(match!=bool(mask&(1u<<lane)))
+            throw std::runtime_error("HASH160 target mask mismatch");
+        }
+      }
       for(int lane=0;lane<4;lane++)if(mask&(1u<<lane)){
         if(p.start_key+p.offset[lane]!=0xD2C55ULL)
           throw std::runtime_error("incorrect HASH160 match");
