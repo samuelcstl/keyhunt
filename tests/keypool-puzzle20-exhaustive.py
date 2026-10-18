@@ -30,7 +30,7 @@ def parse(logs, pattern):
 
 
 def main():
-    worker = ROOT / "keyhunt-worker"
+    worker = ROOT / os.environ.get("KEYHUNT_WORKER_BIN", "keyhunt-worker")
     if not worker.is_file():
         raise SystemExit("Build first: make arm64-worker")
     lower, upper, chunk, size = (
