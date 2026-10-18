@@ -25,8 +25,9 @@ void ecc_modsub_2_neon(Int *out0, Int *out1,
     borrow_mask = vorrq_u64(vcgtq_u64(bb,a),
                             vandq_u64(vceqq_u64(a,bb), borrow_mask));
   }
-  const uint64x2_t correction = vandq_u64(vshrq_n_u64(borrow_mask,63),
-                                          vdupq_n_u64(C));
+  const uint64x2_t correction_mask = vsubq_u64(vdupq_n_u64(0),
+                                                  vshrq_n_u64(borrow_mask,63));
+  const uint64x2_t correction = vandq_u64(correction_mask,vdupq_n_u64(C));
   // Applying +p to the signed 256-bit difference is subtracting C
   // from the wrapped low 256-bit result for the lanes with borrow.
   uint64x2_t carry_mask = vcgtq_u64(correction,diff[0]);
