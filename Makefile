@@ -577,3 +577,69 @@ arm64-r2-ripemd-test: arm64-r2-ripemd
 	  KEYHUNT_WORKER_BIN=$$worker python3 tests/arm64-worker-protocol.py; \
 	  KEYHUNT_WORKER_BIN=$$worker python3 tests/keypool-puzzle20-exhaustive.py; \
 	done
+
+# R3 ECC experiment, stacked on the measured R2 SRI candidate.
+# R2-SRI is the immutable control. R3-sched changes instruction scheduling;
+# R3-neon changes ONLY the two independent slope numerators to NEON SUB2.
+R3_ECC_FLAGS := -DKEYHUNT_INCREMENTAL_CENTER -DKEYHUNT_Y_PARITY \
+  -DKEYHUNT_POINT_ALGEBRA -DKEYHUNT_SINGLE_TARGET_DIRECT \
+  -DKEYHUNT_NEON_TARGET_COMPARE -DKEYHUNT_R1_STRIDE4 \
+  -DKEYHUNT_R1_NEG_GN_Y -DKEYHUNT_R1_ZERO_MASK \
+  -DKEYHUNT_ECC_PAIR_SCHED
+
+build/arm64/secp256k1/field_k1_neon_pair.o: secp256k1/field_k1_neon_pair.cpp secp256k1/field_k1_neon_pair.h
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -c $< -o $@
+
+build/arm64/keyhunt-r3-ecc-sched.o: keyhunt.cpp
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) $(R3_ECC_FLAGS) -c $< -o $@
+
+build/arm64/keyhunt-r3-ecc-neon.o: keyhunt.cpp
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) $(R3_ECC_FLAGS) -DKEYHUNT_ECC_NEON_SUB2 -c $< -o $@
+
+build/arm64/keyhunt-r3-ecc-sched-worker.o: keyhunt.cpp
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) $(R3_ECC_FLAGS) -DKEYHUNT_POOL_WORKER -c $< -o $@
+
+build/arm64/keyhunt-r3-ecc-neon-worker.o: keyhunt.cpp
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) $(R3_ECC_FLAGS) -DKEYHUNT_ECC_NEON_SUB2 -DKEYHUNT_POOL_WORKER -c $< -o $@
+
+keyhunt-r3-ecc-sched: $(ARM64_R2_RIPEMD_CORE) build/arm64/hash/ripemd160_neon4-rot-sri.o build/arm64/keyhunt-r3-ecc-sched.o
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread
+
+keyhunt-r3-ecc-neon: $(ARM64_R2_RIPEMD_CORE) build/arm64/hash/ripemd160_neon4-rot-sri.o build/arm64/secp256k1/field_k1_neon_pair.o build/arm64/keyhunt-r3-ecc-neon.o
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread
+
+keyhunt-worker-r3-ecc-sched: $(ARM64_R2_RIPEMD_CORE) build/arm64/hash/ripemd160_neon4-rot-sri.o build/arm64/keyhunt-r3-ecc-sched-worker.o
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread
+
+keyhunt-worker-r3-ecc-neon: $(ARM64_R2_RIPEMD_CORE) build/arm64/hash/ripemd160_neon4-rot-sri.o build/arm64/secp256k1/field_k1_neon_pair.o build/arm64/keyhunt-r3-ecc-neon-worker.o
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread
+
+build/arm64/ecc-neon-sub2-check: tests/arm64-ecc-neon-sub2-check.cpp \
+  build/arm64/secp256k1/field_k1_neon_pair.o \
+  build/arm64/secp256k1/Int.o build/arm64/secp256k1/IntMod-field-mul-sqr.o \
+  build/arm64/secp256k1/Random.o build/arm64/secp256k1/IntGroup.o \
+  build/arm64/secp256k1/field_k1_arm64.o
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^
+
+.PHONY: arm64-r3-ecc arm64-r3-ecc-test
+arm64-r3-ecc: keyhunt-r2-ripemd-sri keyhunt-worker-r2-ripemd-sri \
+  keyhunt-r3-ecc-sched keyhunt-r3-ecc-neon \
+  keyhunt-worker-r3-ecc-sched keyhunt-worker-r3-ecc-neon \
+  build/arm64/ecc-neon-sub2-check
+
+arm64-r3-ecc-test: arm64-r3-ecc
+	build/arm64/ecc-neon-sub2-check
+	@set -e; for bin in keyhunt-r3-ecc-sched keyhunt-r3-ecc-neon; do \
+	  KEYHUNT_BIN=$$bin bash tests/arm64-smoke.sh; \
+	  KEYHUNT_BIN=$$bin python3 tests/arm64-vectors.py; \
+	  KEYHUNT_BIN=$$bin bash tests/arm64-solved-fixtures.sh; \
+	done
+	@set -e; for worker in keyhunt-worker-r3-ecc-sched keyhunt-worker-r3-ecc-neon; do \
+	  KEYHUNT_WORKER_BIN=$$worker python3 tests/arm64-worker-protocol.py; \
+	  KEYHUNT_WORKER_BIN=$$worker python3 tests/keypool-puzzle20-exhaustive.py; \
+	done
