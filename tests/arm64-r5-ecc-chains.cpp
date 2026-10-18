@@ -129,7 +129,7 @@ static void to_words(const Resident&r,Two&out){
   for(int lane=0;lane<2;lane++){
     for(int j=0;j<10;j++){
       unsigned pos=j*26,idx=pos/64,shift=pos%64;
-      uint64_t digit=vgetq_lane_u64(r[j],lane);
+      uint64_t digit=lane?vgetq_lane_u64(r[j],1):vgetq_lane_u64(r[j],0);
       out[lane][idx]|=digit<<shift;
       if(shift>38&&idx+1<4)out[lane][idx+1]|=digit>>(64-shift);
     }
