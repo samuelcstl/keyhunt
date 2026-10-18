@@ -315,13 +315,13 @@ struct Engine{
 struct RunResult{Stats producer,consumer;uint64_t elapsed_ns=0;size_t peak=0;
   uint64_t blocked=0,idle=0;};
 static RunResult run(Engine&engine,int width,int queue_capacity,
-                     double seconds,bool verify){
+                     double seconds,bool verify,int verify_batches){
   Queue q(queue_capacity);
   RunResult result{};
   auto started=Clock::now();
   std::exception_ptr ep=nullptr;
   std::thread consumer([&]{
-    try{engine.consume(q,result.consumer,verify,verify?1:0);}
+    try{engine.consume(q,result.consumer,verify,verify?verify_batches:0);}
     catch(...){ep=std::current_exception();}
   });
   try{
@@ -331,7 +331,8 @@ static RunResult run(Engine&engine,int width,int queue_capacity,
     do{
       engine.produce_batch(START+batch*GROUP,center,width,q,result.producer,verify);
       batch++;
-    }while(!verify&&nano(started,Clock::now())<seconds*1e9);
+    }while(verify ? batch<uint64_t(verify_batches) :
+                     nano(started,Clock::now())<seconds*1e9);
   }catch(...){
     // Queue will be drained; error rethrown after joining.
     q.close();consumer.join();throw;
@@ -350,20 +351,22 @@ static RunResult run(Engine&engine,int width,int queue_capacity,
 }
 int main(int argc,char**argv){
   int width=4,queue_capacity=32;
-  double seconds=60;bool verify=false;
+  double seconds=60;bool verify=false;int verify_batches=3;
   for(int i=1;i<argc;i++){
     std::string arg=argv[i];
     if(arg=="--verify")verify=true;
+    else if(arg=="--verify-batches"&&i+1<argc)verify_batches=std::atoi(argv[++i]);
     else if(arg=="--width"&&i+1<argc)width=std::atoi(argv[++i]);
     else if(arg=="--queue"&&i+1<argc)queue_capacity=std::atoi(argv[++i]);
     else if(arg=="--seconds"&&i+1<argc)seconds=std::atof(argv[++i]);
     else {std::cerr<<"usage: --width 1|2|4|8|16 --queue 32 --seconds 60 [--verify]\n";return 2;}
   }
   if(!(width==1||width==2||width==4||width==8||width==16)||
-     queue_capacity<2||queue_capacity>1024||seconds<.1||seconds>600)return 2;
+     queue_capacity<2||queue_capacity>1024||seconds<.1||seconds>600||
+     verify_batches<1||verify_batches>100)return 2;
   try{
     Engine engine;engine.init_minus();
-    RunResult r=run(engine,width,queue_capacity,seconds,verify);
+    RunResult r=run(engine,width,queue_capacity,seconds,verify,verify_batches);
     const double elapsed=r.elapsed_ns/1e9;
     std::cout<<"width,queue,mode,elapsed_s,produced_keys,hashed_keys,"
                 "hashed_Mkeys_s,producer_inverse_ms,producer_points_ms,"
@@ -376,8 +379,10 @@ int main(int argc,char**argv){
              <<r.producer.xy_ns/1e6<<","<<r.consumer.hash_ns/1e6<<","
              <<r.blocked/1e6<<","<<r.idle/1e6<<","<<r.peak<<","
              <<r.consumer.hits<<"\n";
-    if(verify)std::cerr<<"PASS: all 1024 ECC points match independent scalar multiplication; "
-                         "all indexed packets hashed once and Puzzle20 target recovered\n";
+    if(verify)std::cerr<<"PASS: "<<(GROUP*verify_batches)
+       <<" exact ECC points across "<<verify_batches
+       <<" successive centers match independent scalar multiplication; "
+       "HASH160 digests, all indexed packets and Puzzle20 target PASS\n";
     return 0;
   }catch(const std::exception&e){std::cerr<<"FAIL: "<<e.what()<<"\n";return 1;}
 }
