@@ -669,3 +669,65 @@ arm64-r5-ecc-build: build/arm64/ecc-r5-chains
 arm64-r5-ecc-test: arm64-r5-ecc-build
 	build/arm64/ecc-r5-chains --verify 2000
 	python3 tests/arm64-r5-ecc-oracle.py
+
+# R6 short end-to-end worker qualification for the R5 paired-field winner.
+# Both candidates share the R3 SCHED point/hashing baseline; only the two
+# independent +/- slopes' 4x64 multiplications change.
+R6_ECC_COMMON := $(R3_ECC_FLAGS)
+
+build/arm64/secp256k1/field_k1_pair_ilp.o: secp256k1/field_k1_pair_ilp.cpp secp256k1/field_k1_pair_ilp.h
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -c $< -o $@
+
+build/arm64/keyhunt-r6-mul.o: keyhunt.cpp
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) $(R6_ECC_COMMON) -DKEYHUNT_R6_ECC_PAIR_MUL -c $< -o $@
+
+build/arm64/keyhunt-r6-fold.o: keyhunt.cpp
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) $(R6_ECC_COMMON) -DKEYHUNT_R6_ECC_PAIR_FOLD -c $< -o $@
+
+build/arm64/keyhunt-r6-mul-worker.o: keyhunt.cpp
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) $(R6_ECC_COMMON) -DKEYHUNT_POOL_WORKER -DKEYHUNT_R6_ECC_PAIR_MUL -c $< -o $@
+
+build/arm64/keyhunt-r6-fold-worker.o: keyhunt.cpp
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) $(R6_ECC_COMMON) -DKEYHUNT_POOL_WORKER -DKEYHUNT_R6_ECC_PAIR_FOLD -c $< -o $@
+
+R6_SHARED := $(ARM64_R2_RIPEMD_CORE) build/arm64/hash/ripemd160_neon4-rot-sri.o
+R6_PAIR := build/arm64/secp256k1/field_k1_pair_ilp.o
+
+keyhunt-r6-ecc-pair: $(R6_SHARED) $(R6_PAIR) build/arm64/keyhunt-r6-mul.o
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread
+
+keyhunt-r6-ecc-fold: $(R6_SHARED) $(R6_PAIR) build/arm64/keyhunt-r6-fold.o
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread
+
+keyhunt-worker-r6-ecc-pair: $(R6_SHARED) $(R6_PAIR) build/arm64/keyhunt-r6-mul-worker.o
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread
+
+keyhunt-worker-r6-ecc-fold: $(R6_SHARED) $(R6_PAIR) build/arm64/keyhunt-r6-fold-worker.o
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread
+
+build/arm64/ecc-r6-pair-oracle: tests/arm64-r6-pair-oracle.cpp \
+  build/arm64/secp256k1/field_k1_pair_ilp.o build/arm64/secp256k1/field_k1_arm64.o
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^
+
+.PHONY: arm64-r6-ecc arm64-r6-ecc-test
+arm64-r6-ecc: keyhunt-worker-r3-ecc-sched \
+  keyhunt-r6-ecc-pair keyhunt-r6-ecc-fold \
+  keyhunt-worker-r6-ecc-pair keyhunt-worker-r6-ecc-fold \
+  build/arm64/ecc-r6-pair-oracle
+
+arm64-r6-ecc-test: arm64-r6-ecc
+	build/arm64/ecc-r6-pair-oracle
+	@set -e; for bin in keyhunt-r6-ecc-pair keyhunt-r6-ecc-fold; do \
+	  KEYHUNT_BIN=$$bin bash tests/arm64-smoke.sh; \
+	  KEYHUNT_BIN=$$bin python3 tests/arm64-vectors.py; \
+	  KEYHUNT_BIN=$$bin bash tests/arm64-solved-fixtures.sh; \
+	done
+	@set -e; for worker in keyhunt-worker-r6-ecc-pair keyhunt-worker-r6-ecc-fold; do \
+	  KEYHUNT_WORKER_BIN=$$worker python3 tests/arm64-worker-protocol.py; \
+	  KEYHUNT_WORKER_BIN=$$worker python3 tests/keypool-puzzle20-exhaustive.py; \
+	done
