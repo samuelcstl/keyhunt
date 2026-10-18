@@ -159,11 +159,19 @@ struct Engine{
           throw std::runtime_error("ECC point mismatch at logical offset "+std::to_string(idx));
       }
       const int g=idx/4,lane=idx%4;
-      Packet&pkt=assembling[size_t(g)%assembling.size()];
-      if(pkt.group!=g){
-        if(pkt.mask)throw std::runtime_error("partial packet collision");
-        pkt=Packet{};pkt.group=g;pkt.start_key=start;
+      // Positive and negative point groups have MIRRORED indices.
+      // Mapping slots by group_id modulo ring size collides even when
+      // only two partial groups exist. Use a tiny associative packetizer.
+      Packet* slot=nullptr;
+      for(auto& candidate:assembling)
+        if(candidate.group==g){slot=&candidate;break;}
+      if(!slot){
+        for(auto& candidate:assembling)
+          if(candidate.group==-1){slot=&candidate;break;}
+        if(!slot)throw std::runtime_error("more than four unfinished quartets");
+        *slot=Packet{};slot->group=g;slot->start_key=start;
       }
+      Packet&pkt=*slot;
       if(pkt.mask&(1u<<lane))throw std::runtime_error("duplicate lane in packet");
       pkt.mask|=uint8_t(1u<<lane);
       pkt.offset[lane]=idx;
