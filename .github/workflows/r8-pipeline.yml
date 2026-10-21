@@ -1,0 +1,21 @@
+name: R8 ECC-to-HASH160 bounded pipeline correctness
+on:
+  push:
+    branches: [experiment/pi5-r8-wide-ecc-pipeline-design-20261018]
+  workflow_dispatch:
+jobs:
+  arm64-pipeline:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate physical Pi archive script and assessor
+        run: |
+          bash -n tests/arm64-r8-pipeline-screen.sh
+          python3 -m py_compile tests/arm64-r8-pipeline-assess.py
+          bash tests/arm64-evidence-archive-test.sh
+      - name: Compile real producer/consumer stage executable
+        run: make -j2 arm64-r8-pipeline
+      - name: Verify all 1024 points, packet IDs, SHA160 and Puzzle20 for W=1 2 4 8 16
+        run: make arm64-r8-pipeline-test
+      - name: Quick smoke only, no throughput qualification
+        run: build/arm64/r8-ecc-hash-pipeline --width 4 --queue 8 --seconds 0.2

@@ -815,3 +815,90 @@ keyhunt-worker-r7-ecc-fold-unprofiled: $(R7_SHARED) build/arm64/keyhunt-r7-fold-
 arm64-r7-promotion-worker-test: keyhunt-worker-r3-ecc-sched keyhunt-worker-r7-ecc-fold-unprofiled
 	KEYHUNT_WORKER_BIN=keyhunt-worker-r7-ecc-fold-unprofiled python3 tests/arm64-worker-protocol.py
 	KEYHUNT_WORKER_BIN=keyhunt-worker-r7-ecc-fold-unprofiled python3 tests/keypool-puzzle20-exhaustive.py
+
+# R8 isolated batch-affine inversion throughput, one inverse across
+# 513 denominators, segmented W=1,2,4,8,16 independent prefix/suffix chains.
+# No Keyhunt worker or production database mutation.
+build/arm64/r8-affine-batchscan: tests/arm64-r8-affine-batchscan.cpp \
+  build/arm64/secp256k1/Int.o \
+  build/arm64/secp256k1/IntMod-field-mul-sqr.o \
+  build/arm64/secp256k1/Random.o \
+  build/arm64/secp256k1/IntGroup.o \
+  build/arm64/secp256k1/field_k1_arm64.o
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^
+
+.PHONY: arm64-r8-affine arm64-r8-affine-test
+arm64-r8-affine: build/arm64/r8-affine-batchscan
+arm64-r8-affine-test: arm64-r8-affine
+	build/arm64/r8-affine-batchscan --verify
+
+# R8 real bounded ECC->HASH160 pipeline. Experiment-only independent
+# 2-thread executable, no Keypool/worker production linkage.
+build/arm64/r8-ecc-hash-pipeline: tests/arm64-r8-ecc-hash-pipeline.cpp \
+  $(ARM64_R2_RIPEMD_CORE) build/arm64/hash/ripemd160_neon4-rot-sri.o
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread
+
+.PHONY: arm64-r8-pipeline arm64-r8-pipeline-test
+arm64-r8-pipeline: build/arm64/r8-ecc-hash-pipeline
+arm64-r8-pipeline-test: arm64-r8-pipeline
+	@set -e; for width in 1 2 4 8 16; do \
+	  build/arm64/r8-ecc-hash-pipeline --width $$width --queue 8 --verify; \
+	done
+
+# R9: measured multi-producer ECC -> one HASH160 stage, experimental only.
+build/arm64/r9-multi-pipeline: tests/arm64-r9-multi-pipeline.cpp \
+  $(ARM64_R2_RIPEMD_CORE) build/arm64/hash/ripemd160_neon4-rot-sri.o
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread
+
+.PHONY: arm64-r9-pipeline arm64-r9-pipeline-test
+arm64-r9-pipeline: build/arm64/r9-multi-pipeline
+arm64-r9-pipeline-test: arm64-r9-pipeline
+	@set -e; for producers in 1 2 3; do \
+	  for width in 1 8 16; do \
+	    build/arm64/r9-multi-pipeline --producers $$producers \
+	      --width $$width --queue 8 --verify --verify-batches 2; \
+	  done; \
+	done
+
+# R10: independent OS producer/consumer thread counts (CPU overcommit screen).
+# No production worker or persistent Keypool touched.
+build/arm64/r10-oversub-pipeline: tests/arm64-r10-oversub-pipeline.cpp \
+  $(ARM64_R2_RIPEMD_CORE) build/arm64/hash/ripemd160_neon4-rot-sri.o
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread
+
+.PHONY: arm64-r10-pipeline arm64-r10-pipeline-test
+arm64-r10-pipeline: build/arm64/r10-oversub-pipeline
+arm64-r10-pipeline-test: arm64-r10-pipeline
+	@set -e; for config in 1:1 3:1 3:2 4:2 6:2 8:4; do \
+	  p=$$(printf '%s' "$$config" | cut -d: -f1); \
+	  h=$$(printf '%s' "$$config" | cut -d: -f2); \
+	  build/arm64/r10-oversub-pipeline --producers $$p --consumers $$h \
+	    --width 16 --queue 16 --verify --verify-batches 2; \
+	done
+
+# Parallel R7 unprofiled variants for fair full-chain benchmarks.
+# Legacy R7 worker names above are STAGE-INSTRUMENTED by design.
+build/arm64/keyhunt-r7-sched-unprofiled-worker.o: keyhunt.cpp
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) $(R7_ECC_COMMON) -DKEYHUNT_POOL_WORKER -DKEYHUNT_R7_ECC_PIPE_SCHED -c $< -o $@
+
+build/arm64/keyhunt-r7-pair-unprofiled-worker.o: keyhunt.cpp
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) $(R7_ECC_COMMON) -DKEYHUNT_POOL_WORKER -DKEYHUNT_R7_ECC_PIPE_PAIR -c $< -o $@
+
+keyhunt-worker-r7-ecc-sched-unprofiled: $(R6_SHARED) build/arm64/keyhunt-r7-sched-unprofiled-worker.o
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread
+
+keyhunt-worker-r7-ecc-pair-unprofiled: $(R7_SHARED) build/arm64/keyhunt-r7-pair-unprofiled-worker.o
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread
+
+.PHONY: arm64-r7-unprofiled-variants arm64-r7-unprofiled-variants-test
+arm64-r7-unprofiled-variants: keyhunt-worker-r7-ecc-sched-unprofiled keyhunt-worker-r7-ecc-pair-unprofiled keyhunt-worker-r7-ecc-fold-unprofiled
+arm64-r7-unprofiled-variants-test: arm64-r7-unprofiled-variants
+	@set -e; for w in keyhunt-worker-r7-ecc-sched-unprofiled keyhunt-worker-r7-ecc-pair-unprofiled keyhunt-worker-r7-ecc-fold-unprofiled; do \
+	  KEYHUNT_WORKER_BIN=$$w python3 tests/arm64-worker-protocol.py; \
+	  KEYHUNT_WORKER_BIN=$$w python3 tests/keypool-puzzle20-exhaustive.py; \
+	done

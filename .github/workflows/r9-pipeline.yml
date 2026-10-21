@@ -1,0 +1,22 @@
+name: R9 multi-producer ECC → single HASH160 consumer correctness
+on:
+  push:
+    branches: [experiment/pi5-r9-ecc-producer-scaling-20261018]
+  workflow_dispatch:
+jobs:
+  arm64-r9:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate benchmark runner, assessor and failure-safe archive
+        run: |
+          bash -n tests/arm64-r9-pipeline-screen.sh
+          python3 -m py_compile tests/arm64-r9-pipeline-assess.py
+          bash tests/arm64-evidence-archive-test.sh
+      - name: Build independent production-stage benchmark
+        run: make -j2 arm64-r9-pipeline
+      - name: Verify disjoint ECC key IDs and exact hashes across 1-3 producers
+        run: make arm64-r9-pipeline-test
+      - name: Smoke sustained producer-to-HASH160 throughput
+        run: |
+          build/arm64/r9-multi-pipeline --width 16 --producers 3 --queue 32 --seconds 0.25
