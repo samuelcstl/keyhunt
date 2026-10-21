@@ -131,7 +131,10 @@ counters, bounded-queue checks and correctness remain active in both.
 ### One command on the Pi
 
 ```bash
-cd ~/BITCOIN_ANALYSIS/bitcoin-puzzle/keyhunt-variant-catalog
+BASE="$HOME/BITCOIN_ANALYSIS/bitcoin-puzzle"
+git -C "$BASE/keyhunt" fetch origin feature/keyhunt-variant-catalog-bench-20261021
+git -C "$BASE/keyhunt" worktree add --detach "$BASE/keyhunt-variant-catalog" origin/feature/keyhunt-variant-catalog-bench-20261021
+cd "$BASE/keyhunt-variant-catalog"
 # Read-only catalog inventory, no compilation:
 python3 tests/arm64-catalog-bench.py --list
 
