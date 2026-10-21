@@ -800,3 +800,18 @@ arm64-r7-ecc-test: arm64-r7-ecc
 	  KEYHUNT_WORKER_BIN=$$worker python3 tests/arm64-worker-protocol.py; \
 	  KEYHUNT_WORKER_BIN=$$worker python3 tests/keypool-puzzle20-exhaustive.py; \
 	done
+
+# Qualification-only R7-FOLD worker. Unlike the legacy R7-stage profiling
+# targets above, this builds without KEYHUNT_R7_STAGE_STATS and therefore
+# without per-batch clock calls / extra counters in the hot path.
+build/arm64/keyhunt-r7-fold-unprofiled-worker.o: keyhunt.cpp
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) $(R7_ECC_COMMON) -DKEYHUNT_POOL_WORKER -DKEYHUNT_R7_ECC_PIPE_FOLD -c $< -o $@
+
+keyhunt-worker-r7-ecc-fold-unprofiled: $(R7_SHARED) build/arm64/keyhunt-r7-fold-unprofiled-worker.o
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread
+
+.PHONY: arm64-r7-promotion-worker-test
+arm64-r7-promotion-worker-test: keyhunt-worker-r3-ecc-sched keyhunt-worker-r7-ecc-fold-unprofiled
+	KEYHUNT_WORKER_BIN=keyhunt-worker-r7-ecc-fold-unprofiled python3 tests/arm64-worker-protocol.py
+	KEYHUNT_WORKER_BIN=keyhunt-worker-r7-ecc-fold-unprofiled python3 tests/keypool-puzzle20-exhaustive.py
