@@ -1,0 +1,329 @@
+{
+  "schema_version": 1,
+  "description": "Keyhunt ARM64 experiment catalog. Workers and standalone tests are deliberately separate measurement classes.",
+  "production_default": "baseline",
+  "entries": [
+    {
+      "id": "baseline",
+      "kind": "worker",
+      "family": "R0",
+      "path": "keyhunt-worker",
+      "build": "keyhunt-worker",
+      "profile": "none",
+      "comparison_group": "worker_unprofiled",
+      "metric": "Mkeys_per_second",
+      "unit": "completed_distinct_candidates_per_wall_second"
+    },
+    {
+      "id": "r1-all",
+      "kind": "worker",
+      "family": "R1",
+      "path": "keyhunt-worker-r1",
+      "build": "keyhunt-worker-r1",
+      "profile": "none",
+      "comparison_group": "worker_unprofiled",
+      "metric": "Mkeys_per_second",
+      "unit": "completed_distinct_candidates_per_wall_second"
+    },
+    {
+      "id": "r2-sli",
+      "kind": "worker",
+      "family": "R2",
+      "path": "keyhunt-worker-r2-ripemd-sli",
+      "build": "keyhunt-worker-r2-ripemd-sli",
+      "profile": "none",
+      "comparison_group": "worker_unprofiled",
+      "metric": "Mkeys_per_second",
+      "unit": "completed_distinct_candidates_per_wall_second"
+    },
+    {
+      "id": "r2-sri",
+      "kind": "worker",
+      "family": "R2",
+      "path": "keyhunt-worker-r2-ripemd-sri",
+      "build": "keyhunt-worker-r2-ripemd-sri",
+      "profile": "none",
+      "comparison_group": "worker_unprofiled",
+      "metric": "Mkeys_per_second",
+      "unit": "completed_distinct_candidates_per_wall_second"
+    },
+    {
+      "id": "r3-sched",
+      "kind": "worker",
+      "family": "R3",
+      "path": "keyhunt-worker-r3-ecc-sched",
+      "build": "keyhunt-worker-r3-ecc-sched",
+      "profile": "none",
+      "comparison_group": "worker_unprofiled",
+      "metric": "Mkeys_per_second",
+      "unit": "completed_distinct_candidates_per_wall_second"
+    },
+    {
+      "id": "r3-neon",
+      "kind": "worker",
+      "family": "R3",
+      "path": "keyhunt-worker-r3-ecc-neon",
+      "build": "keyhunt-worker-r3-ecc-neon",
+      "profile": "none",
+      "comparison_group": "worker_unprofiled",
+      "metric": "Mkeys_per_second",
+      "unit": "completed_distinct_candidates_per_wall_second"
+    },
+    {
+      "id": "r6-pair",
+      "kind": "worker",
+      "family": "R6",
+      "path": "keyhunt-worker-r6-ecc-pair",
+      "build": "keyhunt-worker-r6-ecc-pair",
+      "profile": "none",
+      "comparison_group": "worker_unprofiled",
+      "metric": "Mkeys_per_second",
+      "unit": "completed_distinct_candidates_per_wall_second"
+    },
+    {
+      "id": "r6-fold",
+      "kind": "worker",
+      "family": "R6",
+      "path": "keyhunt-worker-r6-ecc-fold",
+      "build": "keyhunt-worker-r6-ecc-fold",
+      "profile": "none",
+      "comparison_group": "worker_unprofiled",
+      "metric": "Mkeys_per_second",
+      "unit": "completed_distinct_candidates_per_wall_second"
+    },
+    {
+      "id": "r7-sched-off",
+      "kind": "worker",
+      "family": "R7",
+      "path": "keyhunt-worker-r7-ecc-sched-unprofiled",
+      "build": "keyhunt-worker-r7-ecc-sched-unprofiled",
+      "profile": "off",
+      "comparison_group": "worker_unprofiled",
+      "metric": "Mkeys_per_second",
+      "unit": "completed_distinct_candidates_per_wall_second"
+    },
+    {
+      "id": "r7-pair-off",
+      "kind": "worker",
+      "family": "R7",
+      "path": "keyhunt-worker-r7-ecc-pair-unprofiled",
+      "build": "keyhunt-worker-r7-ecc-pair-unprofiled",
+      "profile": "off",
+      "comparison_group": "worker_unprofiled",
+      "metric": "Mkeys_per_second",
+      "unit": "completed_distinct_candidates_per_wall_second"
+    },
+    {
+      "id": "r7-fold-off",
+      "kind": "worker",
+      "family": "R7",
+      "path": "keyhunt-worker-r7-ecc-fold-unprofiled",
+      "build": "keyhunt-worker-r7-ecc-fold-unprofiled",
+      "profile": "off",
+      "comparison_group": "worker_unprofiled",
+      "metric": "Mkeys_per_second",
+      "unit": "completed_distinct_candidates_per_wall_second"
+    },
+    {
+      "id": "r7-sched-on",
+      "kind": "worker",
+      "family": "R7",
+      "path": "keyhunt-worker-r7-ecc-sched",
+      "build": "keyhunt-worker-r7-ecc-sched",
+      "profile": "on",
+      "comparison_group": "worker_instrumented",
+      "metric": "Mkeys_per_second",
+      "unit": "completed_distinct_candidates_per_wall_second"
+    },
+    {
+      "id": "r7-pair-on",
+      "kind": "worker",
+      "family": "R7",
+      "path": "keyhunt-worker-r7-ecc-pair",
+      "build": "keyhunt-worker-r7-ecc-pair",
+      "profile": "on",
+      "comparison_group": "worker_instrumented",
+      "metric": "Mkeys_per_second",
+      "unit": "completed_distinct_candidates_per_wall_second"
+    },
+    {
+      "id": "r7-fold-on",
+      "kind": "worker",
+      "family": "R7",
+      "path": "keyhunt-worker-r7-ecc-fold",
+      "build": "keyhunt-worker-r7-ecc-fold",
+      "profile": "on",
+      "comparison_group": "worker_instrumented",
+      "metric": "Mkeys_per_second",
+      "unit": "completed_distinct_candidates_per_wall_second"
+    },
+    {
+      "id": "r4-field",
+      "kind": "micro",
+      "family": "R4",
+      "path": "build/arm64/ecc-radix-screen",
+      "build": "arm64-r4-ecc-build",
+      "profile": "none",
+      "metric": "field_muls_per_second",
+      "unit": "microbenchmark_only",
+      "args": [
+        "--seconds",
+        "{seconds}",
+        "--repeats",
+        "1"
+      ]
+    },
+    {
+      "id": "r5-field",
+      "kind": "micro",
+      "family": "R5",
+      "path": "build/arm64/ecc-r5-chains",
+      "build": "arm64-r5-ecc-build",
+      "profile": "none",
+      "metric": "muls_per_second",
+      "unit": "microbenchmark_only",
+      "args": [
+        "--seconds",
+        "{seconds}",
+        "--repeats",
+        "1"
+      ]
+    },
+    {
+      "id": "r8-affine",
+      "kind": "micro",
+      "family": "R8",
+      "path": "build/arm64/r8-affine-batchscan",
+      "build": "arm64-r8-affine",
+      "profile": "none",
+      "metric": "denominators_per_second",
+      "unit": "microbenchmark_only",
+      "args": [
+        "--seconds",
+        "{seconds}",
+        "--repeats",
+        "1"
+      ]
+    },
+    {
+      "id": "r8-pipeline-on",
+      "kind": "pipeline",
+      "family": "R8",
+      "path": "build/arm64/r8-ecc-hash-pipeline",
+      "build": "arm64-r8-pipeline",
+      "profile": "on",
+      "metric": "hashed_Mkeys_s",
+      "unit": "experimental_indexed_ECC_HASH160_not_Keypool_worker",
+      "args": [
+        "--width",
+        "16",
+        "--queue",
+        "32",
+        "--seconds",
+        "{seconds}"
+      ]
+    },
+    {
+      "id": "r8-pipeline-off",
+      "kind": "pipeline",
+      "family": "R8",
+      "path": "build/arm64/r8-ecc-hash-pipeline-unprofiled",
+      "build": "arm64-pipelines-unprofiled",
+      "profile": "off",
+      "metric": "hashed_Mkeys_s",
+      "unit": "experimental_indexed_ECC_HASH160_not_Keypool_worker",
+      "args": [
+        "--width",
+        "16",
+        "--queue",
+        "32",
+        "--seconds",
+        "{seconds}"
+      ]
+    },
+    {
+      "id": "r9-pipeline-on",
+      "kind": "pipeline",
+      "family": "R9",
+      "path": "build/arm64/r9-multi-pipeline",
+      "build": "arm64-r9-pipeline",
+      "profile": "on",
+      "metric": "hashed_Mkeys_s",
+      "unit": "experimental_indexed_ECC_HASH160_not_Keypool_worker",
+      "args": [
+        "--width",
+        "16",
+        "--queue",
+        "32",
+        "--producers",
+        "2",
+        "--seconds",
+        "{seconds}"
+      ]
+    },
+    {
+      "id": "r9-pipeline-off",
+      "kind": "pipeline",
+      "family": "R9",
+      "path": "build/arm64/r9-multi-pipeline-unprofiled",
+      "build": "arm64-pipelines-unprofiled",
+      "profile": "off",
+      "metric": "hashed_Mkeys_s",
+      "unit": "experimental_indexed_ECC_HASH160_not_Keypool_worker",
+      "args": [
+        "--width",
+        "16",
+        "--queue",
+        "32",
+        "--producers",
+        "2",
+        "--seconds",
+        "{seconds}"
+      ]
+    },
+    {
+      "id": "r10-pipeline-on",
+      "kind": "pipeline",
+      "family": "R10",
+      "path": "build/arm64/r10-oversub-pipeline",
+      "build": "arm64-r10-pipeline",
+      "profile": "on",
+      "metric": "hashed_Mkeys_s",
+      "unit": "experimental_indexed_ECC_HASH160_not_Keypool_worker",
+      "args": [
+        "--width",
+        "16",
+        "--queue",
+        "32",
+        "--producers",
+        "3",
+        "--consumers",
+        "2",
+        "--seconds",
+        "{seconds}"
+      ]
+    },
+    {
+      "id": "r10-pipeline-off",
+      "kind": "pipeline",
+      "family": "R10",
+      "path": "build/arm64/r10-oversub-pipeline-unprofiled",
+      "build": "arm64-pipelines-unprofiled",
+      "profile": "off",
+      "metric": "hashed_Mkeys_s",
+      "unit": "experimental_indexed_ECC_HASH160_not_Keypool_worker",
+      "args": [
+        "--width",
+        "16",
+        "--queue",
+        "32",
+        "--producers",
+        "3",
+        "--consumers",
+        "2",
+        "--seconds",
+        "{seconds}"
+      ]
+    }
+  ]
+}
