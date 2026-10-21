@@ -292,7 +292,7 @@ def main():
                                text=True, timeout=15, check=True)
             if "R7_STAGES worker=" in p.stdout:
                 ap.error(f"Uninstrumented variant contains stage timers: {worker}")
-    out = args.output
+    out = args.output.resolve() if args.output is not None else None
     if out is None:
         ap.error("--output required (new private evidence directory)")
     os.umask(0o077)
