@@ -59,8 +59,15 @@ def assert_user_service_inactive():
     proc = command(["systemctl", "--user", "show", "keypool-hunt.service",
                     "--property=ActiveState", "--value"], check=False)
     if proc.returncode:
-        raise RuntimeError("Cannot check user systemd state. Log in as the Pi user first.")
-    state = proc.stdout.strip()
+        # A first install has no unit to inspect. Only that exact condition
+        # is safe to treat as inactive; an unavailable user bus is NOT.
+        problem = (proc.stderr + proc.stdout).lower()
+        if "could not be found" in problem or "not found" in problem:
+            state = "inactive"
+        else:
+            raise RuntimeError("Cannot check user systemd state. Log in as the Pi user first.")
+    else:
+        state = proc.stdout.strip()
     if state not in ("inactive", "failed"):
         raise RuntimeError("Existing Keypool service state is " + repr(state) +
                            ". Stop it manually before deployment.")
