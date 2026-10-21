@@ -47,7 +47,7 @@ if command -v vcgencmd >/dev/null; then
   { vcgencmd measure_temp; vcgencmd measure_clock arm; vcgencmd get_throttled; } > "$RUN/sensors-before.txt"
 fi
 if [[ "$MODE" == worker ]]; then
-  make -C "$ROOT" -j2 arm64-r7-ecc-test 2>&1 | tee "$RUN/build-and-correctness.log"
+  make -C "$ROOT" -j2 arm64-r7-ecc-test arm64-r7-promotion-worker-test 2>&1 | tee "$RUN/build-and-correctness.log"
 else
   # A missing quota is a hard error. Never silently measure an unthrottled run.
   CGREL="$(awk -F: '$1=="0" {print $3}' /proc/self/cgroup)"
@@ -61,14 +61,14 @@ else
     echo "Expected 150% CPU quota, got $QUOTA/$PERIOD" >&2; exit 2;
   }
 fi
-for bin in keyhunt-worker-r3-ecc-sched keyhunt-worker-r7-ecc-fold; do
+for bin in keyhunt-worker-r3-ecc-sched keyhunt-worker-r7-ecc-fold-unprofiled; do
   [[ -x "$ROOT/$bin" ]] || { echo "Missing executable $bin. Run worker gate first." >&2; exit 2; }
   cp "$ROOT/$bin" "$RUN/binaries/$bin"
   sha256sum "$RUN/binaries/$bin" >> "$RUN/binaries.sha256"
   objdump -drwC "$ROOT/$bin" > "$RUN/$bin.disassembly.txt"
 done
 if [[ "$MODE" == worker ]]; then
-  KEYHUNT_R7_STAGE_PROFILE=0 python3 "$ROOT/tests/arm64-r1-worker-ab.py" --control keyhunt-worker-r3-ecc-sched --candidate keyhunt-worker-r7-ecc-fold --jobs "${KEYHUNT_QUAL_JOBS:-256}" --repeats "${KEYHUNT_QUAL_REPEATS:-6}" --run-dir "$RUN/worker" 2>&1 | tee "$RUN/worker-benchmark.log"
+  KEYHUNT_R7_STAGE_PROFILE=0 python3 "$ROOT/tests/arm64-r1-worker-ab.py" --control keyhunt-worker-r3-ecc-sched --candidate keyhunt-worker-r7-ecc-fold-unprofiled --jobs "${KEYHUNT_QUAL_JOBS:-256}" --repeats "${KEYHUNT_QUAL_REPEATS:-6}" --run-dir "$RUN/worker" 2>&1 | tee "$RUN/worker-benchmark.log"
 else
   KEYHUNT_R7_STAGE_PROFILE=0 python3 "$ROOT/tests/arm64-sqlite-worker-ab.py" --control keyhunt-worker-r3-ecc-sched --candidate keyhunt-worker-r7-ecc-fold --jobs "${KEYHUNT_QUAL_JOBS:-128}" --repeats "${KEYHUNT_QUAL_REPEATS:-4}" --run-dir "$RUN/sqlite" 2>&1 | tee "$RUN/sqlite-benchmark.log"
 fi
