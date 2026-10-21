@@ -11,6 +11,10 @@ email: albertobsd@gmail.com
 #include <time.h>
 #include <vector>
 #include <inttypes.h>
+#ifdef KEYHUNT_POOL_WORKER
+#include <regex>
+#include <string>
+#endif
 #include "base58/libbase58.h"
 #include "rmd160/rmd160.h"
 #include "oldbloom/oldbloom.h"
@@ -124,7 +128,12 @@ int minikey_n_limit;
 	
 const char *version = "0.2.230519 Satoshi Quest";
 
+// Compile-time tuning knob. All group sizes must be even multiples of four.
+#ifndef CPU_GRP_SIZE
 #define CPU_GRP_SIZE 1024
+#endif
+static_assert(CPU_GRP_SIZE >= 8 && CPU_GRP_SIZE % 4 == 0,
+              "CPU_GRP_SIZE must be >= 8 and divisible by four");
 
 std::vector<Point> Gn;
 Point _2Gn;
@@ -412,7 +421,221 @@ Int lambda,lambda2,beta,beta2;
 
 Secp256K1 *secp;
 
+#ifdef KEYHUNT_POOL_WORKER
+// Dedicated local worker: no public interface, no changes to legacy binaries.
+#if defined(_WIN64) && !defined(__CYGWIN__)
+#error KEYHUNT_POOL_WORKER is POSIX-only
+#endif
+// The controller may prefetch up to four chunks. Cryptographic workers
+// claim bounded slices across chunk boundaries without job-wide barriers.
+// One reader enqueues; one independent writer publishes ordered completions.
+static constexpr size_t WORKER_WINDOW = 4;
+struct WorkerJob {
+  uint64_t id = 0;
+  uint64_t count = 0, claimed = 0, done = 0;
+  Int lo;
+  bool hit = false;
+  std::string hit_key;
+};
+static WorkerJob worker_jobs[WORKER_WINDOW];
+static pthread_mutex_t worker_mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t worker_cond = PTHREAD_COND_INITIALIZER;
+static uint64_t worker_head = 0, worker_tail = 0;
+static bool worker_eof = false, worker_shutdown = false;
+static bool worker_io_failed = false;
+static FILE *worker_protocol = nullptr;
+static thread_local uint64_t worker_current_seq = UINT64_MAX;
+
+// Serialized only when acquiring/finishing a 262144-key slice, never during
+// the optimized secp256k1/SHA256/RIPEMD160 hot loop.
+static bool worker_claim(Int *start, uint64_t *count, uint64_t *seq) {
+  pthread_mutex_lock(&worker_mutex);
+  for (;;) {
+    if (worker_shutdown) {
+      pthread_mutex_unlock(&worker_mutex);
+      return false;
+    }
+    for (uint64_t j = worker_head; j < worker_tail; ++j) {
+      WorkerJob &job = worker_jobs[j % WORKER_WINDOW];
+      if (job.claimed >= job.count)
+        continue;
+      uint64_t span = job.count - job.claimed;
+      *count = span < N_SEQUENTIAL_MAX ? span : N_SEQUENTIAL_MAX;
+      start->Set(&job.lo);
+      start->Add(job.claimed);
+      job.claimed += *count;
+      *seq = j;
+      pthread_mutex_unlock(&worker_mutex);
+      return true;
+    }
+    if (worker_eof) {
+      pthread_mutex_unlock(&worker_mutex);
+      return false;
+    }
+    pthread_cond_wait(&worker_cond, &worker_mutex);
+  }
+}
+
+static void worker_finish(uint64_t seq, uint64_t count) {
+  pthread_mutex_lock(&worker_mutex);
+  WorkerJob &job = worker_jobs[seq % WORKER_WINDOW];
+  job.done += count;
+  if (job.done == job.count)
+    pthread_cond_broadcast(&worker_cond);
+  pthread_mutex_unlock(&worker_mutex);
+}
+
+static void *worker_reporter(void *) {
+  pthread_mutex_lock(&worker_mutex);
+  for (;;) {
+    while (!worker_shutdown && worker_head == worker_tail && !worker_eof)
+      pthread_cond_wait(&worker_cond, &worker_mutex);
+    if (worker_shutdown || (worker_eof && worker_head == worker_tail))
+      break;
+    WorkerJob &job = worker_jobs[worker_head % WORKER_WINDOW];
+    while (!worker_shutdown && job.done < job.count)
+      pthread_cond_wait(&worker_cond, &worker_mutex);
+    if (worker_shutdown)
+      break;
+    // All producers have finished this slot; safe to copy and recycle it.
+    const uint64_t id = job.id, count = job.count;
+    const bool hit = job.hit;
+    const std::string key = job.hit_key;
+    ++worker_head;
+    pthread_cond_broadcast(&worker_cond);
+    pthread_mutex_unlock(&worker_mutex);
+    if (hit)
+      fprintf(worker_protocol,
+        "{\"type\":\"hit\",\"id\":%" PRIu64 ",\"count\":%" PRIu64 ",\"key\":\"0x%s\"}\n",
+        id, count, key.c_str());
+    else
+      fprintf(worker_protocol,
+        "{\"type\":\"complete\",\"id\":%" PRIu64 ",\"count\":%" PRIu64 "}\n",
+        id, count);
+    if (fflush(worker_protocol) != 0) {
+      pthread_mutex_lock(&worker_mutex);
+      worker_io_failed = true;
+      worker_shutdown = true;
+      pthread_cond_broadcast(&worker_cond);
+      break;
+    }
+    pthread_mutex_lock(&worker_mutex);
+    if (hit) {
+      worker_shutdown = true;
+      pthread_cond_broadcast(&worker_cond);
+      break;
+    }
+  }
+  pthread_mutex_unlock(&worker_mutex);
+  return nullptr;
+}
+
+static int keyhunt_worker_protocol() {
+  pthread_t reporter;
+  if (pthread_create(&reporter, nullptr, worker_reporter, nullptr))
+    return EXIT_FAILURE;
+  const std::regex format(
+    R"KEYPOOL(^\s*\{\s*"id"\s*:\s*([0-9]+)\s*,\s*"start"\s*:\s*"(0x[0-9a-fA-F]+)"\s*,\s*"end_exclusive"\s*:\s*"(0x[0-9a-fA-F]+)"\s*\}\s*$)KEYPOOL");
+  char line[512];
+  uint64_t previous_id = 0;
+  bool have_previous = false;
+  while (fgets(line, sizeof(line), stdin)) {
+    if (!strchr(line, '\n') && !feof(stdin)) {
+      int ch;
+      while ((ch = fgetc(stdin)) != '\n' && ch != EOF) {}
+      fprintf(worker_protocol, "{\"type\":\"error\",\"reason\":\"line too long\"}\n");
+      fflush(worker_protocol);
+      continue;
+    }
+    std::cmatch m;
+    if (!std::regex_match(line, m, format)) {
+      fprintf(worker_protocol, "{\"type\":\"error\",\"reason\":\"invalid job\"}\n");
+      fflush(worker_protocol);
+      continue;
+    }
+    const std::string id_str = m[1].str();
+    uint64_t id = 0;
+    try {
+      id = std::stoull(id_str);
+    } catch (...) {
+      fprintf(worker_protocol, "{\"type\":\"error\",\"reason\":\"invalid id\"}\n");
+      fflush(worker_protocol);
+      continue;
+    }
+    const std::string from = m[2].str().substr(2);
+    const std::string to = m[3].str().substr(2);
+    Int lo, hi, span, cap;
+    lo.SetBase16((char *)from.c_str());
+    hi.SetBase16((char *)to.c_str());
+    span.Set(&hi);
+    if (lo.IsZero() || !lo.IsLower(&hi) || !hi.IsLowerOrEqual(&secp->order)) {
+      fprintf(worker_protocol, "{\"type\":\"error\",\"reason\":\"invalid bounds\"}\n");
+      fflush(worker_protocol);
+      continue;
+    }
+    span.Sub(&lo);
+    cap.SetInt32(0x100000);
+    if (span.IsGreater(&cap) || span.GetInt64() % CPU_GRP_SIZE != 0) {
+      fprintf(worker_protocol, "{\"type\":\"error\",\"reason\":\"job must be group-aligned and <= 2^20 keys\"}\n");
+      fflush(worker_protocol);
+      continue;
+    }
+    if (have_previous && id != previous_id + 1) {
+      fprintf(worker_protocol, "{\"type\":\"error\",\"reason\":\"nonsequential id\"}\n");
+      fflush(worker_protocol);
+      continue;
+    }
+    pthread_mutex_lock(&worker_mutex);
+    while (!worker_shutdown && worker_tail - worker_head >= WORKER_WINDOW)
+      pthread_cond_wait(&worker_cond, &worker_mutex);
+    if (worker_shutdown) {
+      pthread_mutex_unlock(&worker_mutex);
+      break;
+    }
+    WorkerJob &job = worker_jobs[worker_tail % WORKER_WINDOW];
+    job.id = id;
+    job.lo.Set(&lo);
+    job.count = span.GetInt64();
+    job.claimed = job.done = 0;
+    job.hit = false;
+    job.hit_key.clear();
+    ++worker_tail;
+    pthread_cond_broadcast(&worker_cond);
+    pthread_mutex_unlock(&worker_mutex);
+    previous_id = id;
+    have_previous = true;
+  }
+  pthread_mutex_lock(&worker_mutex);
+  worker_eof = true;
+  pthread_cond_broadcast(&worker_cond);
+  pthread_mutex_unlock(&worker_mutex);
+  pthread_join(reporter, nullptr);
+  pthread_mutex_lock(&worker_mutex);
+  worker_shutdown = true;
+  pthread_cond_broadcast(&worker_cond);
+  pthread_mutex_unlock(&worker_mutex);
+  for (int j = 0; j < NTHREADS; ++j)
+    pthread_join(tid[j], nullptr);
+  return worker_io_failed || ferror(stdin) || ferror(worker_protocol)
+    ? EXIT_FAILURE : EXIT_SUCCESS;
+}
+#endif
+
 int main(int argc, char **argv)	{
+#ifdef KEYHUNT_POOL_WORKER
+  int original_stdout = dup(STDOUT_FILENO);
+  if (original_stdout < 0 || dup2(STDERR_FILENO, STDOUT_FILENO) < 0) {
+    perror("worker stdio");
+    return EXIT_FAILURE;
+  }
+  worker_protocol = fdopen(original_stdout, "w");
+  if (!worker_protocol) {
+    perror("worker protocol");
+    return EXIT_FAILURE;
+  }
+  setvbuf(stdout, nullptr, _IONBF, 0);
+  setvbuf(worker_protocol, nullptr, _IOLBF, 0);
+#endif
 	char buffer[2048];
 	char rawvalue[32];
 	struct tothread *tt;	//tothread
@@ -873,17 +1096,22 @@ int main(int argc, char **argv)	{
 				N_SEQUENTIAL_MAX =strtol(str_N,NULL,10);
 			}
 			
-			if(N_SEQUENTIAL_MAX < 1024)	{
-				fprintf(stderr,"[I] n value need to be equal or great than 1024, back to defaults\n");
-				FLAG_N = 0;
-				N_SEQUENTIAL_MAX = 0x100000000;
-			}
-			if(N_SEQUENTIAL_MAX % 1024 != 0)	{
-				fprintf(stderr,"[I] n value need to be multiplier of  1024\n");
-				FLAG_N = 0;
-				N_SEQUENTIAL_MAX = 0x100000000;
+			// A chunk must contain whole ECC groups. Silent fallback to the
+			// huge default is dangerous because it changes assigned coverage.
+			const uint64_t chunk_unit =
+			    (FLAGMODE == MODE_ADDRESS || FLAGMODE == MODE_RMD160 ||
+			     FLAGMODE == MODE_XPOINT) ? CPU_GRP_SIZE : 1024;
+			if (N_SEQUENTIAL_MAX < chunk_unit ||
+			    N_SEQUENTIAL_MAX % chunk_unit != 0) {
+				fprintf(stderr,
+				        "[E] -n must be at least %llu and a multiple of %llu; got %llu\n",
+				        (unsigned long long)chunk_unit,
+				        (unsigned long long)chunk_unit,
+				        (unsigned long long)N_SEQUENTIAL_MAX);
+				exit(EXIT_FAILURE);
 			}
 		}
+
 		printf("[+] N = %p\n",(void*)N_SEQUENTIAL_MAX);
 		if(FLAGMODE == MODE_MINIKEYS)	{
 			BSGS_N.SetInt32(DEBUGCOUNT);
@@ -986,7 +1214,7 @@ int main(int argc, char **argv)	{
 		}
 		bsgs_found = (int*) calloc(N,sizeof(int));
 		checkpointer((void *)bsgs_found,__FILE__,"calloc","bsgs_found" ,__LINE__ -1 );
-		OriginalPointsBSGS.reserve(N);
+		OriginalPointsBSGS.resize(N);
 		OriginalPointsBSGScompressed = (bool*) malloc(N*sizeof(bool));
 		checkpointer((void *)OriginalPointsBSGScompressed,__FILE__,"malloc","OriginalPointsBSGScompressed" ,__LINE__ -1 );
 		pointx_str = (char*) malloc(65);
@@ -1313,9 +1541,9 @@ int main(int argc, char **argv)	{
 		BSGS_MP3 = secp->ComputePublicKey(&BSGS_M3);
 		BSGS_MP3_double = secp->ComputePublicKey(&BSGS_M3_double);
 		
-		BSGS_AMP2.reserve(32);
-		BSGS_AMP3.reserve(32);
-		GSn.reserve(CPU_GRP_SIZE/2);
+		BSGS_AMP2.resize(32);
+		BSGS_AMP3.resize(32);
+		GSn.resize(CPU_GRP_SIZE/2);
 
 		i= 0;
 
@@ -2091,6 +2319,21 @@ int main(int argc, char **argv)	{
 		}
 		free(aux);
 	}
+
+#ifdef KEYHUNT_POOL_WORKER
+  if (FLAGMODE != MODE_ADDRESS || FLAGCRYPTO != CRYPTO_BTC ||
+      FLAGSEARCH != SEARCH_COMPRESS || FLAGENDOMORPHISM || FLAGRANDOM ||
+      !stride.IsEqual(&ONE) || N != 1 || FLAGRANGE || FLAGBITRANGE) {
+    fprintf(stderr, "[E] worker requires one BTC address, compressed, stride 1, no -R/-r/-b/-e\n");
+    return EXIT_FAILURE;
+  }
+  if (!FLAG_N)
+    N_SEQUENTIAL_MAX = 0x40000;
+  if (N_SEQUENTIAL_MAX > 0x100000 || N_SEQUENTIAL_MAX % CPU_GRP_SIZE != 0) {
+    fprintf(stderr, "[E] invalid worker slice (-n)\n");
+    return EXIT_FAILURE;
+  }
+#endif
 	if(FLAGMODE != MODE_BSGS)	{
 		steps = (uint64_t *) calloc(NTHREADS,sizeof(uint64_t));
 		checkpointer((void *)steps,__FILE__,"calloc","steps" ,__LINE__ -1 );
@@ -2142,6 +2385,9 @@ int main(int argc, char **argv)	{
 		}
 	}
 	
+#ifdef KEYHUNT_POOL_WORKER
+  return keyhunt_worker_protocol();
+#endif
 	for(j =0; j < 7; j++)	{
 		int_limits[j].SetBase10((char*)str_limits[j]);
 	}
@@ -2149,7 +2395,15 @@ int main(int argc, char **argv)	{
 	continue_flag = 1;
 	total.SetInt32(0);
 	pretotal.SetInt32(0);
-	debugcount_mpz.Set(&BSGS_N);
+	// The CPU search loops advance one group per steps[] increment.
+// DEBUGCOUNT/BSGS_N is the legacy 1024-point default, not the
+// compiled size of the optional ARM64 ECC group variants.
+if (FLAGMODE == MODE_ADDRESS || FLAGMODE == MODE_RMD160 ||
+    FLAGMODE == MODE_XPOINT) {
+  debugcount_mpz.SetInt32(CPU_GRP_SIZE);
+} else {
+  debugcount_mpz.Set(&BSGS_N);
+}
 	seconds.SetInt32(0);
 	do	{
 		sleep_ms(1000);
@@ -2182,7 +2436,11 @@ int main(int argc, char **argv)	{
 				}
 				else	{
 					if(FLAGSEARCH == SEARCH_COMPRESS)	{
-						total.Mult(2);
+#ifdef KEYHUNT_Y_PARITY
+						if (!(FLAGCRYPTO == CRYPTO_BTC && !FLAGENDOMORPHISM &&
+						      (FLAGMODE == MODE_ADDRESS || FLAGMODE == MODE_RMD160)))
+#endif
+							total.Mult(2);
 					}
 				}
 				
@@ -2537,14 +2795,50 @@ void *thread_process(void *vargp)	{
 	
 	char publickeyhashrmd160_endomorphism[12][4][20];
 	
-	bool calculate_y = FLAGSEARCH == SEARCH_UNCOMPRESS || FLAGSEARCH == SEARCH_BOTH || FLAGCRYPTO  == CRYPTO_ETH;
+	#ifdef KEYHUNT_Y_PARITY
+	const bool parity_search = FLAGSEARCH == SEARCH_COMPRESS &&
+		FLAGCRYPTO == CRYPTO_BTC && !FLAGENDOMORPHISM &&
+		(FLAGMODE == MODE_ADDRESS || FLAGMODE == MODE_RMD160);
+#else
+	const bool parity_search = false;
+#endif
+	bool calculate_y = FLAGSEARCH == SEARCH_UNCOMPRESS || FLAGSEARCH == SEARCH_BOTH ||
+		FLAGCRYPTO == CRYPTO_ETH || parity_search;
 	Int key_mpz,keyfound,temp_stride;
+#ifdef KEYHUNT_POOL_WORKER
+  // Diagnostic-only post-hash group trace for exhaustive coverage fixtures.
+  // Never enabled for production throughput measurements.
+  const bool coverage_trace = getenv("KEYHUNT_WORKER_COVERAGE") != nullptr;
+  Int group_start;
+#endif
 	tt = (struct tothread *)vargp;
 	thread_number = tt->nt;
 	free(tt);
+#ifdef KEYHUNT_SINGLE_TARGET_DIRECT
+	// One-time marker that this process selected N==1 exact matching.
+	if (thread_number == 0 && parity_search && N == 1)
+		fprintf(stderr, "[I] Direct single-target HASH160 path active\n");
+#endif
+#ifdef KEYHUNT_NEON_TARGET_COMPARE
+	if (thread_number == 0 && parity_search && N == 1)
+		fprintf(stderr,"[I] Four-lane NEON target comparison active\n");
+#endif
 	grp->Set(dx);
+#ifdef KEYHUNT_POOL_WORKER
+  for (;;) {
+    uint64_t worker_seq = UINT64_MAX;
+    uint64_t worker_span = 0;
+    if (!worker_claim(&key_mpz, &worker_span, &worker_seq))
+      break;
+    worker_current_seq = worker_seq;
+    continue_flag = 1;
+#endif
 			
 	do {
+    uint64_t assigned_count = N_SEQUENTIAL_MAX;
+#ifdef KEYHUNT_POOL_WORKER
+    assigned_count = worker_span;
+#else
 		if(FLAGRANDOM){
 			key_mpz.Rand(&n_range_start,&n_range_end);
 		}
@@ -2566,7 +2860,18 @@ void *thread_process(void *vargp)	{
 				continue_flag = 0;
 			}
 		}
+#endif
 		if(continue_flag)	{
+#ifdef KEYHUNT_POOL_WORKER
+      if (getenv("KEYHUNT_WORKER_TRACE")) {
+        char *start_hex = key_mpz.GetBase16();
+        fprintf(stderr, "WORKER_SLICE start=%s count=%" PRIu64 "\n", start_hex, assigned_count);
+        free(start_hex);
+      }
+#endif
+#ifdef KEYHUNT_INCREMENTAL_CENTER
+			bool center_ready = false; // Fresh start for every assigned sequential/random chunk.
+#endif
 			count = 0;
 			if(FLAGMATRIX)	{
 					hextemp = key_mpz.GetBase16();
@@ -2584,11 +2889,24 @@ void *thread_process(void *vargp)	{
 				}
 			}
 			do {
+#ifdef KEYHUNT_POOL_WORKER
+        if (coverage_trace)
+          group_start.Set(&key_mpz);
+#endif
+#ifdef KEYHUNT_INCREMENTAL_CENTER
+				// At the end of the preceding batch, startP was advanced by
+				// CPU_GRP_SIZE*G. Recomputing its scalar multiple here is redundant.
+				if (!center_ready) {
+#endif
 				temp_stride.SetInt32(CPU_GRP_SIZE / 2);
 				temp_stride.Mult(&stride);
 				key_mpz.Add(&temp_stride);
 	 			startP = secp->ComputePublicKey(&key_mpz);
 				key_mpz.Sub(&temp_stride);
+#ifdef KEYHUNT_INCREMENTAL_CENTER
+					center_ready = true;
+				}
+#endif
 
 				for(i = 0; i < hLength; i++) {
 					dx[i].ModSub(&Gn[i].x,&startP.x);
@@ -2610,8 +2928,12 @@ void *thread_process(void *vargp)	{
 					_s.ModMulK1(&dy,&dx[i]);        // s = (p2.y-p1.y)*inverse(p2.x-p1.x);
 					_p.ModSquareK1(&_s);            // _p = pow2(s)
 
+					#ifdef KEYHUNT_POINT_ALGEBRA
+					pp.x.ModSub(&_p, &pp.x); // (_p - oldX) mod p
+					#else
 					pp.x.ModNeg();
 					pp.x.ModAdd(&_p);
+					#endif
 					pp.x.ModSub(&Gn[i].x);           // rx = pow2(s) - p1.x - p2.x;
 
 					if(calculate_y)	{
@@ -2627,8 +2949,12 @@ void *thread_process(void *vargp)	{
 
 					_s.ModMulK1(&dyn,&dx[i]);      // s = (p2.y-p1.y)*inverse(p2.x-p1.x);
 					_p.ModSquareK1(&_s);            // _p = pow2(s)
+					#ifdef KEYHUNT_POINT_ALGEBRA
+					pn.x.ModSub(&_p, &pn.x);
+					#else
 					pn.x.ModNeg();
 					pn.x.ModAdd(&_p);
+					#endif
 					pn.x.ModSub(&Gn[i].x);          // rx = pow2(s) - p1.x - p2.x;
 
 					if(calculate_y)	{
@@ -2686,8 +3012,12 @@ void *thread_process(void *vargp)	{
 				_s.ModMulK1(&dyn,&dx[i]);
 				_p.ModSquareK1(&_s);
 
+				#ifdef KEYHUNT_POINT_ALGEBRA
+				pn.x.ModSub(&_p, &pn.x);
+				#else
 				pn.x.ModNeg();
 				pn.x.ModAdd(&_p);
+				#endif
 				pn.x.ModSub(&Gn[i].x);
 				
 				if(calculate_y)	{
@@ -2711,6 +3041,9 @@ void *thread_process(void *vargp)	{
 				}
 								
 				for(j = 0; j < CPU_GRP_SIZE/4;j++){
+#ifdef KEYHUNT_NEON_TARGET_COMPARE
+					uint8_t neon_target_matches = 0x0F;
+#endif
 					switch(FLAGMODE)	{
 						case MODE_RMD160:
 						case MODE_ADDRESS:
@@ -2728,8 +3061,33 @@ void *thread_process(void *vargp)	{
 										secp->GetHash160_fromX(P2PKH,0x03,&endomorphism_beta2[(j*4)].x,&endomorphism_beta2[(j*4)+1].x,&endomorphism_beta2[(j*4)+2].x,&endomorphism_beta2[(j*4)+3].x,(uint8_t*)publickeyhashrmd160_endomorphism[5][0],(uint8_t*)publickeyhashrmd160_endomorphism[5][1],(uint8_t*)publickeyhashrmd160_endomorphism[5][2],(uint8_t*)publickeyhashrmd160_endomorphism[5][3]);
 									}
 									else	{
-										secp->GetHash160_fromX(P2PKH,0x02,&pts[(j*4)].x,&pts[(j*4)+1].x,&pts[(j*4)+2].x,&pts[(j*4)+3].x,(uint8_t*)publickeyhashrmd160_endomorphism[0][0],(uint8_t*)publickeyhashrmd160_endomorphism[0][1],(uint8_t*)publickeyhashrmd160_endomorphism[0][2],(uint8_t*)publickeyhashrmd160_endomorphism[0][3]);
+#ifdef KEYHUNT_Y_PARITY
+										if (parity_search) {
+											#ifdef KEYHUNT_NEON_TARGET_COMPARE
+											if (N == 1) {
+												neon_target_matches = secp->GetHash160_fromXYParityTarget(P2PKH,
+													&pts[j*4], &pts[j*4+1], &pts[j*4+2], &pts[j*4+3],
+													addressTable[0].value);
+												for (int lane = 0; lane < 4; ++lane) {
+													if (neon_target_matches & (1u << lane))
+														memcpy(publickeyhashrmd160_endomorphism[0][lane],
+														       addressTable[0].value, 20);
+												}
+											} else
+#endif
+											secp->GetHash160_fromXYParity(P2PKH,
+												&pts[j*4],&pts[j*4+1],&pts[j*4+2],&pts[j*4+3],
+												(uint8_t*)publickeyhashrmd160_endomorphism[0][0],
+												(uint8_t*)publickeyhashrmd160_endomorphism[0][1],
+												(uint8_t*)publickeyhashrmd160_endomorphism[0][2],
+												(uint8_t*)publickeyhashrmd160_endomorphism[0][3]);
+										} else {
+#endif
+secp->GetHash160_fromX(P2PKH,0x02,&pts[(j*4)].x,&pts[(j*4)+1].x,&pts[(j*4)+2].x,&pts[(j*4)+3].x,(uint8_t*)publickeyhashrmd160_endomorphism[0][0],(uint8_t*)publickeyhashrmd160_endomorphism[0][1],(uint8_t*)publickeyhashrmd160_endomorphism[0][2],(uint8_t*)publickeyhashrmd160_endomorphism[0][3]);
 										secp->GetHash160_fromX(P2PKH,0x03,&pts[(j*4)].x,&pts[(j*4)+1].x,&pts[(j*4)+2].x,&pts[(j*4)+3].x,(uint8_t*)publickeyhashrmd160_endomorphism[1][0],(uint8_t*)publickeyhashrmd160_endomorphism[1][1],(uint8_t*)publickeyhashrmd160_endomorphism[1][2],(uint8_t*)publickeyhashrmd160_endomorphism[1][3]);
+#ifdef KEYHUNT_Y_PARITY
+										}
+#endif
 									}
 									
 								}
@@ -2790,11 +3148,16 @@ void *thread_process(void *vargp)	{
 							if( FLAGCRYPTO  == CRYPTO_BTC) {
 								
 								for(k = 0; k < 4;k++)	{
+#ifdef KEYHUNT_NEON_TARGET_COMPARE
+									if (parity_search && N == 1 &&
+									    !(neon_target_matches & (1u << k)))
+										continue;
+#endif
 									if(FLAGSEARCH == SEARCH_COMPRESS || FLAGSEARCH == SEARCH_BOTH){
 										if(FLAGENDOMORPHISM)	{
 											for(l = 0;l < 6; l++)	{
 												r = bloom_check(&bloom,publickeyhashrmd160_endomorphism[l][k],MAXLENGTHADDRESS);
-												if(r) {
+												if (r) {
 													r = searchbinary(addressTable,publickeyhashrmd160_endomorphism[l][k],N);
 													if(r) {
 														keyfound.SetInt32(k);
@@ -2855,10 +3218,20 @@ void *thread_process(void *vargp)	{
 											}
 										}
 										else	{
-											for(l = 0;l < 2; l++)	{
+											for(l = 0; l < (parity_search ? 1 : 2); l++)	{
+												#ifdef KEYHUNT_SINGLE_TARGET_DIRECT
+												r = N == 1
+												    ? (memcmp(publickeyhashrmd160_endomorphism[l][k],
+												              addressTable[0].value, 20) == 0)
+												    : bloom_check(&bloom,publickeyhashrmd160_endomorphism[l][k],MAXLENGTHADDRESS);
+												#else
 												r = bloom_check(&bloom,publickeyhashrmd160_endomorphism[l][k],MAXLENGTHADDRESS);
+												#endif
 												if(r) {
-													r = searchbinary(addressTable,publickeyhashrmd160_endomorphism[l][k],N);
+													#ifdef KEYHUNT_SINGLE_TARGET_DIRECT
+													if (N != 1)
+													#endif
+														r = searchbinary(addressTable,publickeyhashrmd160_endomorphism[l][k],N);
 													if(r) {
 														keyfound.SetInt32(k);
 														keyfound.Mult(&stride);
@@ -2867,6 +3240,12 @@ void *thread_process(void *vargp)	{
 														publickey = secp->ComputePublicKey(&keyfound);
 														secp->GetHash160(P2PKH,true,publickey,(uint8_t*)publickeyhashrmd160);
 														if(memcmp(publickeyhashrmd160_endomorphism[l][k],publickeyhashrmd160,20) != 0)	{
+															#ifdef KEYHUNT_Y_PARITY
+															if (parity_search) {
+																fprintf(stderr,"[E] Parity-aware key/hash mismatch; refusing incorrect result\\n");
+																exit(EXIT_FAILURE);
+															}
+#endif
 															keyfound.Neg();
 															keyfound.Add(&secp->order);
 														}
@@ -3074,6 +3453,16 @@ void *thread_process(void *vargp)	{
 				*/
 
 				steps[thread_number]++;
+#ifdef KEYHUNT_POOL_WORKER
+        // Emit only after the whole four-lane HASH160 group was evaluated.
+        // A test compares these completed group ranges against the full oracle.
+        if (coverage_trace) {
+          char *start_hex = group_start.GetBase16();
+          fprintf(stderr, "WORKER_SCANNED start=%s count=%u\n",
+                  start_hex, unsigned(CPU_GRP_SIZE));
+          free(start_hex);
+        }
+#endif
 
 				// Next start point (startP + GRP_SIZE*G)
 				pp = startP;
@@ -3091,10 +3480,19 @@ void *thread_process(void *vargp)	{
 				pp.y.ModMulK1(&_s);
 				pp.y.ModSub(&_2Gn.y);
 				startP = pp;
-			}while(count < N_SEQUENTIAL_MAX && continue_flag);
+			}while(count < assigned_count && continue_flag);
 		}
-	} while(continue_flag);
+#ifdef KEYHUNT_POOL_WORKER
+  } while (false);
+    // Exactly one claimed slice per iteration; return to the queue now.
+    worker_finish(worker_seq, worker_span);
+    worker_current_seq = UINT64_MAX;
+  }
+#else
+  } while(continue_flag);
 	ends[thread_number] = 1;
+#endif
+  delete grp;
 	return NULL;
 }
 
@@ -4387,7 +4785,7 @@ void init_generator()	{
 	Point G = secp->ComputePublicKey(&stride);
 	Point g;
 	g.Set(G);
-	Gn.reserve(CPU_GRP_SIZE / 2);
+	Gn.resize(CPU_GRP_SIZE / 2);
 	Gn[0] = g;
 	g = secp->DoubleDirect(g);
 	Gn[1] = g;
@@ -5987,6 +6385,33 @@ void checkpointer(void *ptr,const char *file,const char *function,const  char *n
 }
 
 void writekey(bool compressed,Int *key)	{
+#ifdef KEYHUNT_POOL_WORKER
+  if (!compressed) {
+    fprintf(stderr, "[E] worker received an uncompressed hit\n");
+    exit(EXIT_FAILURE);
+  }
+  Point verified_point = secp->ComputePublicKey(key);
+  unsigned char verified_hash[20];
+  secp->GetHash160(P2PKH, true, verified_point, verified_hash);
+  if (memcmp(verified_hash, addressTable[0].value, 20) != 0) {
+    fprintf(stderr, "[E] worker hit verification failed\n");
+    exit(EXIT_FAILURE);
+  }
+  char *hex = key->GetBase16();
+  pthread_mutex_lock(&worker_mutex);
+  if (worker_current_seq == UINT64_MAX) {
+    fprintf(stderr, "[E] worker hit without active slice\n");
+    exit(EXIT_FAILURE);
+  }
+  WorkerJob &active = worker_jobs[worker_current_seq % WORKER_WINDOW];
+  if (!active.hit) {
+    active.hit_key = hex;
+    active.hit = true;
+  }
+  pthread_mutex_unlock(&worker_mutex);
+  free(hex);
+  return;
+#endif
 	Point publickey;
 	FILE *keys;
 	char *hextemp,*hexrmd,public_key_hex[132],address[50],rmdhash[20];

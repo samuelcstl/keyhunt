@@ -1,0 +1,100 @@
+name: ARM64 fixed-width engine
+on:
+  push:
+    branches: [perf/pi5-arm64]
+  workflow_dispatch:
+
+jobs:
+  build-and-smoke:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install OpenSSL headers
+        run: sudo apt-get update && sudo apt-get install -y libssl-dev
+      - name: Build main engine on ARM64
+        run: make arm64
+      - name: Verify known puzzle solution
+        run: make arm64-test
+      - name: Build OpenSSL SHA2 experiment
+        run: make arm64-openssl
+      - name: Verify OpenSSL backend
+        run: make arm64-openssl-test
+      - name: Build hardware SHA2 engine
+        run: make arm64-sha2
+      - name: Verify SHA2 engine uses hardware instructions
+        run: |
+          objdump -d keyhunt-arm64-sha2 | grep -Eq 'sha256h2?'
+      - name: Verify SHA2 engine recovered all known keys
+        run: |
+          if grep -qE '(^| )sha2( |$)' /proc/cpuinfo; then
+            make arm64-sha2-test
+          else
+            echo "CPU lacks ARM SHA2 instruction support, only build verified"
+          fi
+
+      - name: Compile hardware SHA2 with four-way NEON RIPEMD160
+        run: make arm64-sha2-neon
+      - name: Verify both SHA2 and NEON instructions are present
+        run: |
+          objdump -d keyhunt-arm64-sha2-neon | grep -Eq 'sha256h2?'
+          objdump -d keyhunt-arm64-sha2-neon | grep -Eq 'ushl|shl|sli|orr'
+      - name: Validate four-way NEON RIPEMD160 and recovered puzzle keys
+        run: |
+          if grep -qE '(^| )sha2( |$)' /proc/cpuinfo; then
+            make arm64-sha2-neon-test
+          else
+            echo "Skipping native execution on runner without SHA2"
+          fi
+      - name: Compile two-stream hardware SHA256SU0/SU1 variant
+        run: make arm64-sha2-neon-su2
+      - name: Check hardware SHA2 scheduling instructions
+        run: |
+          objdump -d keyhunt-arm64-sha2-neon-su2 | grep -Eq 'sha256su0'
+          objdump -d keyhunt-arm64-sha2-neon-su2 | grep -Eq 'sha256su1'
+      - name: Test independent SHA256 vectors and solved keys
+        run: make arm64-sha2-neon-su2-test
+      - name: Test grouped ECC center reuse against baseline
+        run: make arm64-sha2-neon-su2-center-test
+      - name: Compare Y-parity and alternative ECC group-size correctness
+        run: make arm64-parity-test arm64-groups-test arm64-parity-groups-test
+      - name: Validate Pi benchmark and profile scripts
+        run: bash -n tests/arm64-parity-group-sweep.sh tests/arm64-parity-profile.sh
+      - name: Verify canonical secp256k1 field reduction
+        run: make arm64-field-test
+
+      - name: Test native ARM64 field multiplication and squaring variants
+        run: make arm64-field-comba-test
+      - name: Check native product instructions and benchmark script
+        run: |
+          objdump -d keyhunt-arm64-sha2-neon-su2-center-parity-field-mul | grep -Eq '\bmul\b'
+          objdump -d keyhunt-arm64-sha2-neon-su2-center-parity-field-mul | grep -Eq '\bumulh\b'
+          bash -n tests/arm64-field-benchmark.sh
+
+      - name: Validate avoidable point arithmetic and one-target Bloom bypass
+        run: make arm64-work-elimination-test
+      - name: Parse repeated Pi A/B and deep-PMU profiling scripts
+        run: |
+          bash -n tests/arm64-work-elimination-bench.sh
+          bash -n tests/arm64-deep-profile.sh
+          bash -n tests/arm64-pmu-ab.sh
+      - name: Verify four-lane NEON target mask and one-/multi-target correctness
+        run: make arm64-neon-target-test
+      - name: Validate repeated target-mask A/B benchmark script
+        run: bash -n tests/arm64-neon-target-bench.sh
+
+  worker-and-pool:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify local SQLite controller allocation and crash replay
+        run: python3 tests/keypool-controller.py
+      - name: Build and verify persistent bounded Keyhunt worker
+        run: make arm64-worker-test
+      - name: Integrate real worker with SQLite across controller restarts
+        run: python3 tests/keypool-integration.py
+      - name: Exhaustively verify Puzzle 20 dispatch, full hash coverage and crash replay
+        run: python3 tests/keypool-puzzle20-exhaustive.py
+      - name: Check Pi A/B/C benchmark harness syntax and CLI
+        run: |
+          python3 -m py_compile tests/keypool-performance-ab.py
+          python3 tests/keypool-performance-ab.py --help

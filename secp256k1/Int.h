@@ -197,7 +197,37 @@ private:
 
 #ifndef _WIN64
 
-// Missing intrinsics
+#if defined(__aarch64__)
+// The main fixed-width secp256k1 backend uses x86 carry/multiply helpers.
+// AArch64 GCC supports native 64x64->128 multiplication via __uint128_t.
+// Keep the interface and carry/borrow semantics identical to the x86 code.
+static inline uint64_t _umul128(uint64_t a, uint64_t b, uint64_t *high) {
+  const __uint128_t product = (__uint128_t)a * b;
+  *high = (uint64_t)(product >> 64);
+  return (uint64_t)product;
+}
+static inline uint8_t _addcarry_u64(uint8_t carry, uint64_t a,
+                                    uint64_t b, uint64_t *out) {
+  const __uint128_t sum = (__uint128_t)a + b + (carry & 1);
+  *out = (uint64_t)sum;
+  return (uint8_t)(sum >> 64);
+}
+static inline uint8_t _subborrow_u64(uint8_t borrow, uint64_t a,
+                                     uint64_t b, uint64_t *out) {
+  const __uint128_t rhs = (__uint128_t)b + (borrow & 1);
+  *out = (uint64_t)(a - rhs);
+  return (uint8_t)((__uint128_t)a < rhs);
+}
+static inline uint64_t __shiftright128(uint64_t low, uint64_t high,
+                                       unsigned char n) {
+  return n ? ((low >> n) | (high << (64 - n))) : low;
+}
+static inline uint64_t __shiftleft128(uint64_t low, uint64_t high,
+                                      unsigned char n) {
+  return n ? ((high << n) | (low >> (64 - n))) : high;
+}
+#else
+// Existing x86-64 implementation.
 static uint64_t inline _umul128(uint64_t a, uint64_t b, uint64_t *h) {
   uint64_t rhi;
   uint64_t rlo;
@@ -212,7 +242,6 @@ static uint64_t inline __shiftright128(uint64_t a, uint64_t b,unsigned char n) {
   return  c;
 }
 
-
 static uint64_t inline __shiftleft128(uint64_t a, uint64_t b,unsigned char n) {
   uint64_t c;
   __asm__ ("movq %1,%0;shldq %3,%2,%0;" : "=D"(c) : "r"(b),"r"(a),"c"(n));
@@ -221,6 +250,7 @@ static uint64_t inline __shiftleft128(uint64_t a, uint64_t b,unsigned char n) {
 
 #define _subborrow_u64(a,b,c,d) __builtin_ia32_sbb_u64(a,b,c,(long long unsigned int*)d);
 #define _addcarry_u64(a,b,c,d) __builtin_ia32_addcarryx_u64(a,b,c,(long long unsigned int*)d);
+#endif
 #define _byteswap_uint64 __builtin_bswap64
 #else
 #include <intrin.h>
