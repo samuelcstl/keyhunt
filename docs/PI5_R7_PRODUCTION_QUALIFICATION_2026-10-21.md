@@ -5,6 +5,18 @@ to Keypool's live Puzzle 71 SQLite seed or cursor.
 
 ## Why this gate
 
+**Correction after the first Gate 1 run on 21 Oct:** its R7-FOLD executable was
+compiled with `KEYHUNT_R7_STAGE_STATS`. Passing
+`KEYHUNT_R7_STAGE_PROFILE=0` did **not** disable stage timing because
+the code checks only whether `getenv()` returns a pointer. The
+six 256-chunk paired comparisons yielded R7-FOLD −0.052% median (2/6 wins);
+that is valid for the instrumented executable, but not a fair promotion test.
+The updated gate builds and validates the separate
+`keyhunt-worker-r7-ecc-fold-unprofiled` target, completely excluding
+per-batch stage timestamps and counters at compile time.
+The qualification refuses any candidate binary containing the R7 stage
+logging marker. **Re-run Gate 1 on the corrected branch.**
+
 Historical 18-Oct-2026 R3 head-to-head: SCHED won 7/8 trials against NEON.
 The R7-FOLD 24-job, 2-pair screen had +8.28% and +0.23% against R3,
 with a conspicuously slow first R3 control (6.815 Mkeys/s). The claimed
@@ -34,7 +46,7 @@ bash tests/arm64-r7-promotion-gate.sh worker
 
 Build + correctness gates, then **256 completed 2^20-key chunks per
 observation**, six reversed-order pairs. Uses identical scratch Feistel
-chunk order and exactly four worker threads. Runtime stage tracing disabled.
+chunk order and exactly four worker threads. R7-FOLD stage tracing entirely absent from the timed executable.
 Logs preserve source, ELF binaries, SHA256, disassembly, CPU state,
 temperature and raw per-pair rates.
 
