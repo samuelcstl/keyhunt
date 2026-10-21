@@ -1,0 +1,9 @@
+[Unit]
+Description=Read-only Keypool progress snapshot
+After=keypool-hunt.service
+
+[Service]
+Type=oneshot
+UMask=0077
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/usr/bin/python3 %h/.local/share/keypool/current/keypool_health.py --db %h/.local/state/keypool/campaign.sqlite3 --write
