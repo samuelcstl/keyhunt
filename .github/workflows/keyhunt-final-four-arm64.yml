@@ -1,0 +1,38 @@
+name: Pi5 final four Keypool workers
+on:
+  push:
+    branches: [test/pi5-four-worker-final-20261021]
+  pull_request:
+    branches: [feature/keyhunt-variant-catalog-bench-20261021]
+  workflow_dispatch:
+jobs:
+  four-way-sqlite-smoke:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - name: Syntax and balanced-order selftest
+        run: |
+          python3 -m py_compile tests/arm64-four-worker-sqlite-final.py
+          bash -n tests/arm64-four-worker-sqlite-final.sh
+          python3 tests/arm64-four-worker-sqlite-final.py --selftest
+      - name: Build precisely four finalists
+        run: |
+          make -j2 keyhunt-worker-r3-ecc-sched keyhunt-worker-r7-ecc-pair-unprofiled keyhunt-worker-r7-ecc-fold-unprofiled keyhunt-worker-r2-ripemd-sri
+      - name: Four independent disposable SQLite campaigns with four balanced rounds
+        run: |
+          python3 tests/arm64-four-worker-sqlite-final.py --ci-smoke --jobs 8 --warmup-jobs 0 --max-seconds 150 --per-observation-seconds 20 --output ../runs/four-final-ci
+          test -f ../runs/four-final-ci/summary.json
+          python3 - <<'PY'
+          import csv,json,pathlib
+          p=pathlib.Path('../runs/four-final-ci')
+          rows=list(csv.DictReader((p/'results.tsv').open(),delimiter='\t'))
+          assert len(rows)==16
+          assert all(r['keys']==str(8*(1<<20)) for r in rows)
+          assert set(r['worker'] for r in rows)=={'r3-sched','r2-sri','r7-pair-off','r7-fold-off'}
+          for r in rows:
+              db=p/f"r{r['round']}-{r['slot']}-{r['worker']}"/'campaign.sqlite3'
+              assert db.exists(),db
+          summary=json.loads((p/'summary.json').read_text())
+          assert len(summary['pairwise'])==6
+          print('PASS: 16 scratch SQLite observations, four balanced rounds, 6 pairwise comparisons')
+          PY
