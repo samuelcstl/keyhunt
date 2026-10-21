@@ -1,0 +1,50 @@
+name: Keyhunt catalog and instrumentation gates
+on:
+  push:
+    branches: [feature/keyhunt-variant-catalog-bench-20261021]
+  pull_request:
+    branches: [integration/keyhunt-all-experiments-20261021]
+  workflow_dispatch:
+jobs:
+  catalog-static:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate catalog, harness syntax and safe defaults
+        run: |
+          python3 -m py_compile tests/arm64-catalog-bench.py
+          python3 tests/arm64-catalog-bench.py --selftest
+          python3 tests/arm64-catalog-bench.py --list
+          bash -n tests/arm64-catalog-bench.sh
+          bash -n tests/arm64-r7-promotion-gate.sh
+          bash tests/arm64-evidence-archive-test.sh
+      - name: Build all 23 catalog binaries with distinct targets
+        run: make -j2 arm64-catalog-build
+      - name: Assert mutually isolated profiling flags
+        run: |
+          for variant in sched pair fold; do
+            off="keyhunt-worker-r7-ecc-${variant}-unprofiled"
+            on="keyhunt-worker-r7-ecc-${variant}"
+            ! strings "$off" | grep -Fq 'R7_STAGES worker='
+            strings "$on" | grep -Fq 'R7_STAGES worker='
+          done
+          for variant in r8-ecc-hash r9-multi r10-oversub; do
+            test -x "build/arm64/${variant}-pipeline"
+            test -x "build/arm64/${variant}-pipeline-unprofiled"
+          done
+      - name: Crypto oracles, protocol and bounded crash replay
+        run: make -j2 arm64-r7-unprofiled-variants-test arm64-pipelines-unprofiled-test
+      - name: Quick end-to-end catalog runner smoke (CI only, not Pi ranking)
+        run: |
+          mkdir -p ../runs/bench71
+          printf '%s\n' '1PWo3JeB9jrGwfHDNpdGK54CRas7fsVzXU' > ../runs/bench71/target.txt
+          python3 tests/arm64-catalog-bench.py --mode all --jobs 8 --repeats 1 --seconds 0.5 --max-seconds 180 --run-dir ../runs/catalog-ci-smoke
+
+  catalog-labs:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile and verify stage-profiled laboratory references
+        run: |
+          make -j2 arm64-r4-ecc-build arm64-r5-ecc-build arm64-r8-affine arm64-r8-pipeline arm64-r9-pipeline arm64-r10-pipeline
+          make arm64-r4-ecc-test arm64-r5-ecc-test arm64-r8-affine-test arm64-r8-pipeline-test arm64-r9-pipeline-test arm64-r10-pipeline-test

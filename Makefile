@@ -837,7 +837,7 @@ arm64-r8-affine-test: arm64-r8-affine
 build/arm64/r8-ecc-hash-pipeline: tests/arm64-r8-ecc-hash-pipeline.cpp \
   $(ARM64_R2_RIPEMD_CORE) build/arm64/hash/ripemd160_neon4-rot-sri.o
 	@mkdir -p $(dir $@)
-	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -DKEYHUNT_PIPELINE_STAGE_STATS -o $@ $^ -lm -lpthread
 
 .PHONY: arm64-r8-pipeline arm64-r8-pipeline-test
 arm64-r8-pipeline: build/arm64/r8-ecc-hash-pipeline
@@ -850,7 +850,7 @@ arm64-r8-pipeline-test: arm64-r8-pipeline
 build/arm64/r9-multi-pipeline: tests/arm64-r9-multi-pipeline.cpp \
   $(ARM64_R2_RIPEMD_CORE) build/arm64/hash/ripemd160_neon4-rot-sri.o
 	@mkdir -p $(dir $@)
-	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -DKEYHUNT_PIPELINE_STAGE_STATS -o $@ $^ -lm -lpthread
 
 .PHONY: arm64-r9-pipeline arm64-r9-pipeline-test
 arm64-r9-pipeline: build/arm64/r9-multi-pipeline
@@ -867,7 +867,7 @@ arm64-r9-pipeline-test: arm64-r9-pipeline
 build/arm64/r10-oversub-pipeline: tests/arm64-r10-oversub-pipeline.cpp \
   $(ARM64_R2_RIPEMD_CORE) build/arm64/hash/ripemd160_neon4-rot-sri.o
 	@mkdir -p $(dir $@)
-	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -DKEYHUNT_PIPELINE_STAGE_STATS -o $@ $^ -lm -lpthread
 
 .PHONY: arm64-r10-pipeline arm64-r10-pipeline-test
 arm64-r10-pipeline: build/arm64/r10-oversub-pipeline
@@ -902,3 +902,36 @@ arm64-r7-unprofiled-variants-test: arm64-r7-unprofiled-variants
 	  KEYHUNT_WORKER_BIN=$$w python3 tests/arm64-worker-protocol.py; \
 	  KEYHUNT_WORKER_BIN=$$w python3 tests/keypool-puzzle20-exhaustive.py; \
 	done
+
+# R8-R10 paired stage-free builds: exact algorithm, same source, no hot-loop
+# Clock::now() / stage accumulation. Legacy targets remain profiled.
+.PHONY: arm64-pipelines-unprofiled arm64-pipelines-unprofiled-test
+build/arm64/r8-ecc-hash-pipeline-unprofiled: tests/arm64-r8-ecc-hash-pipeline.cpp \
+  $(ARM64_R2_RIPEMD_CORE) build/arm64/hash/ripemd160_neon4-rot-sri.o
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread
+
+build/arm64/r9-multi-pipeline-unprofiled: tests/arm64-r9-multi-pipeline.cpp \
+  $(ARM64_R2_RIPEMD_CORE) build/arm64/hash/ripemd160_neon4-rot-sri.o
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread
+
+build/arm64/r10-oversub-pipeline-unprofiled: tests/arm64-r10-oversub-pipeline.cpp \
+  $(ARM64_R2_RIPEMD_CORE) build/arm64/hash/ripemd160_neon4-rot-sri.o
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread
+
+arm64-pipelines-unprofiled: build/arm64/r8-ecc-hash-pipeline-unprofiled build/arm64/r9-multi-pipeline-unprofiled build/arm64/r10-oversub-pipeline-unprofiled
+arm64-pipelines-unprofiled-test: arm64-pipelines-unprofiled
+	build/arm64/r8-ecc-hash-pipeline-unprofiled --width 16 --queue 8 --verify
+	build/arm64/r9-multi-pipeline-unprofiled --producers 2 --width 16 --queue 8 --verify --verify-batches 2
+	build/arm64/r10-oversub-pipeline-unprofiled --producers 3 --consumers 2 --width 16 --queue 8 --verify --verify-batches 2
+
+.PHONY: arm64-catalog-build
+arm64-catalog-build: arm64-worker keyhunt-worker-r1 \
+  keyhunt-worker-r2-ripemd-sli keyhunt-worker-r2-ripemd-sri \
+  keyhunt-worker-r3-ecc-sched keyhunt-worker-r3-ecc-neon \
+  keyhunt-worker-r6-ecc-pair keyhunt-worker-r6-ecc-fold \
+  arm64-r7-ecc arm64-r7-unprofiled-variants \
+  arm64-r4-ecc-build arm64-r5-ecc-build arm64-r8-affine \
+  arm64-r8-pipeline arm64-r9-pipeline arm64-r10-pipeline arm64-pipelines-unprofiled

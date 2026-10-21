@@ -92,3 +92,90 @@ keep systemd units **disabled by default**.
   speedup claim. See `docs/PI5_R7_PRODUCTION_QUALIFICATION_2026-10-21.md`.
 - R7-SCHED and R7-PAIR **unprofiled** have not yet been measured on
   the physical Pi; keep as candidates.
+
+
+## Machine-readable exhaustive catalog and short benchmark
+
+The source of truth is `config/keyhunt-arm64-catalog.json`, with **23
+separately addressable executables**. A group describes *comparable units*:
+
+- **14 Keypool JSON workers:** unchanged R0, R1, R2-SLI/SRI, R3-SCHED/NEON,
+  R6-PAIR/FOLD, and all three R7 variants with both on/off instrumentation.
+  11 stage-free workers form the throughput-screen comparison group;
+  the three R7 profiled binaries belong to a separate instrumented group.
+- **Three microbenchmark families:** R4 field multiplication, R5 field
+  multiplication chains, R8 affine inversion. Each executable emits its
+  own variants internally, with native units, not Puzzle71 keys/s.
+- **Six standalone research pipelines:** R8/R9/R10, profiled and
+  stage-free build of each. Their throughput is not a Keypool worker
+  throughput. Select comparisons within the same algorithm/configuration
+  and profiling mode.
+
+**Instrumentation contract:** for R7, compile with
+`KEYHUNT_R7_STAGE_STATS` only for profiled worker names; then explicitly
+pass `KEYHUNT_R7_STAGE_PROFILE=1` to collect stage counters.
+`=0` is explicitly disabled (no logging or per-group timestamps), but
+the profiled binary retains a small guard branch; **only the unprofiled
+binary removes the stage machinery entirely**.
+`KEYHUNT_WORKER_TRACE=1` and `KEYHUNT_WORKER_COVERAGE=1`
+are opt-in as well; unset or `=0` disables them. The shared benchmark
+clears all these environment variables from throughput measurements.
+
+For R8/R9/R10 standalone executables, compile with
+`KEYHUNT_PIPELINE_STAGE_STATS` to retain per-stage, queue and hash
+timing. The corresponding `-unprofiled` targets are built from the
+same source **without that macro** and output zero values for those
+disabled timing columns. Wall-clock throughput, real produced/hashed
+counters, bounded-queue checks and correctness remain active in both.
+
+### One command on the Pi
+
+```bash
+BASE="$HOME/BITCOIN_ANALYSIS/bitcoin-puzzle"
+git -C "$BASE/keyhunt" fetch origin feature/keyhunt-variant-catalog-bench-20261021
+git -C "$BASE/keyhunt" worktree add --detach "$BASE/keyhunt-variant-catalog" origin/feature/keyhunt-variant-catalog-bench-20261021
+cd "$BASE/keyhunt-variant-catalog"
+# Read-only catalog inventory, no compilation:
+python3 tests/arm64-catalog-bench.py --list
+
+# MANUAL: compile, perform correctness checks, benchmark all 23 entries:
+bash tests/arm64-catalog-bench.sh all
+```
+
+Use a **dedicated worktree** of the catalog PR, not the live Keypool
+checkout. The runner refuses changed tracked files, writes everything
+to a new private `../runs/arm64-catalog/` directory, and automatically
+archives a SHA256-verifiable TAR in `$HOME`. No SQLite production
+database is opened or advanced. It aborts archive creation if a
+`FOUND.private` file exists in evidence.
+
+Default screening budget: at most 420 seconds for initial compilation,
+180 seconds for crypto/coverage smoke tests, **420 seconds of benchmark
+wall time**. It performs two reversed-order passes, 64 × 2^20 completed
+chunks per worker observation and roughly 2-second windows per
+laboratory configuration. Re-running after the initial build avoids
+most compilation overhead. The benchmark has per-observation hard
+timeouts, and a partial/failed run still produces evidence to inspect.
+
+Options, e.g.:
+```bash
+KEYHUNT_CATALOG_JOBS=32 KEYHUNT_CATALOG_REPEATS=2 \
+  bash tests/arm64-catalog-bench.sh workers
+
+# Just the pipeline family and both instrumentation modes:
+bash tests/arm64-catalog-bench.sh pipelines
+```
+
+Output includes per-observation rates, temperatures, clock samples,
+throttling flags, compile source commit and hashes for all
+**exact executable** candidates, plus a `summary.txt` grouped by
+metric and instrumentation level. **Do not rank R4/R5/R8 field
+operations per second against Keypool completed keys/s**, or merge
+profiled/unprofiled results in a single leaderboard. Two short repeats
+are intended only for screening: finalists with sub-2% advantages
+need longer paired confirmation (our prior R3/R7 head-to-head gate).
+
+No work on R4/R5 or R8-R10 is activated in the default Keypool
+`--worker`. The installed production worker stays the unchanged
+`keyhunt-worker` unless a later deployment explicitly points to
+a validated alternative via `--worker`.

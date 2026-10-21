@@ -2799,6 +2799,7 @@ void *thread_process(void *vargp)	{
 #endif
 #ifdef KEYHUNT_R7_STAGE_STATS
 	using R7Clock=std::chrono::steady_clock;
+	const bool r7_stage_enabled = getenv("KEYHUNT_R7_STAGE_PROFILE") && strcmp(getenv("KEYHUNT_R7_STAGE_PROFILE"), "1") == 0;
 	uint64_t r7_inv_ns=0,r7_points_ns=0,r7_hash_ns=0,r7_batches=0;
 #endif
 	Point pp;
@@ -2828,7 +2829,7 @@ void *thread_process(void *vargp)	{
 #ifdef KEYHUNT_POOL_WORKER
   // Diagnostic-only post-hash group trace for exhaustive coverage fixtures.
   // Never enabled for production throughput measurements.
-  const bool coverage_trace = getenv("KEYHUNT_WORKER_COVERAGE") != nullptr;
+  const bool coverage_trace = getenv("KEYHUNT_WORKER_COVERAGE") && strcmp(getenv("KEYHUNT_WORKER_COVERAGE"), "1") == 0;
   Int group_start;
 #endif
 	tt = (struct tothread *)vargp;
@@ -2897,7 +2898,7 @@ void *thread_process(void *vargp)	{
 #endif
 		if(continue_flag)	{
 #ifdef KEYHUNT_POOL_WORKER
-      if (getenv("KEYHUNT_WORKER_TRACE")) {
+      if (getenv("KEYHUNT_WORKER_TRACE") && strcmp(getenv("KEYHUNT_WORKER_TRACE"), "1") == 0) {
         char *start_hex = key_mpz.GetBase16();
         fprintf(stderr, "WORKER_SLICE start=%s count=%" PRIu64 "\n", start_hex, assigned_count);
         free(start_hex);
@@ -2943,7 +2944,8 @@ void *thread_process(void *vargp)	{
 #endif
 
 #ifdef KEYHUNT_R7_STAGE_STATS
-				auto r7_start=R7Clock::now();
+				R7Clock::time_point r7_start{};
+                if (r7_stage_enabled) r7_start=R7Clock::now();
 #endif
 				for(i = 0; i < hLength; i++) {
 					dx[i].ModSub(&Gn[i].x,&startP.x);
@@ -2953,7 +2955,8 @@ void *thread_process(void *vargp)	{
 				dx[i + 1].ModSub(&_2Gn.x,&startP.x); // For the next center point
 				grp->ModInv();
 #ifdef KEYHUNT_R7_STAGE_STATS
-				auto r7_after_inverse=R7Clock::now();
+				R7Clock::time_point r7_after_inverse{};
+                if (r7_stage_enabled) r7_after_inverse=R7Clock::now();
 #endif
 				pts[CPU_GRP_SIZE / 2] = startP;
 
@@ -3144,7 +3147,8 @@ void *thread_process(void *vargp)	{
 				}
 								
 #ifdef KEYHUNT_R7_STAGE_STATS
-				auto r7_after_points=R7Clock::now();
+				R7Clock::time_point r7_after_points{};
+                if (r7_stage_enabled) r7_after_points=R7Clock::now();
 #endif
 				for(j = 0; j < CPU_GRP_SIZE/4;j++){
 #ifdef KEYHUNT_NEON_TARGET_COMPARE
@@ -3570,6 +3574,7 @@ secp->GetHash160_fromX(P2PKH,0x02,&pts[(j*4)].x,&pts[(j*4)+1].x,&pts[(j*4)+2].x,
 				*/
 
 #ifdef KEYHUNT_R7_STAGE_STATS
+				if (r7_stage_enabled) {
 				auto r7_after_hash=R7Clock::now();
 				r7_inv_ns+=std::chrono::duration_cast<std::chrono::nanoseconds>(
 					r7_after_inverse-r7_start).count();
@@ -3578,6 +3583,7 @@ secp->GetHash160_fromX(P2PKH,0x02,&pts[(j*4)].x,&pts[(j*4)+1].x,&pts[(j*4)+2].x,
 				r7_hash_ns+=std::chrono::duration_cast<std::chrono::nanoseconds>(
 					r7_after_hash-r7_after_points).count();
 				++r7_batches;
+                }
 #endif
 				steps[thread_number]++;
 #ifdef KEYHUNT_POOL_WORKER
@@ -3620,7 +3626,7 @@ secp->GetHash160_fromX(P2PKH,0x02,&pts[(j*4)].x,&pts[(j*4)+1].x,&pts[(j*4)+2].x,
 	ends[thread_number] = 1;
 #endif
 #ifdef KEYHUNT_R7_STAGE_STATS
-	if (getenv("KEYHUNT_R7_STAGE_PROFILE")) {
+	if (r7_stage_enabled) {
 		fprintf(stderr,"R7_STAGES worker=%d batches=%" PRIu64
 		        " inverse_ns=%" PRIu64 " points_ns=%" PRIu64
 		        " hash_scan_ns=%" PRIu64 "\n",
