@@ -22,4 +22,4 @@ jobs:
       - name: Build R3 baseline and R7 pipelined experimental binaries
         run: make -j2 arm64-r7-ecc
       - name: Cryptographic oracle, Puzzle20, worker protocol and crash replay
-        run: make arm64-r7-ecc-test
+        run: make arm64-r7-ecc-test arm64-r7-promotion-worker-test
