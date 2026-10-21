@@ -91,7 +91,7 @@ def measure(worker, folder, jobs, timeout):
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--control", default="keyhunt-worker-r3-ecc-sched")
-    ap.add_argument("--candidate", default="keyhunt-worker-r7-ecc-fold")
+    ap.add_argument("--candidate", default="keyhunt-worker-r7-ecc-fold-unprofiled")
     ap.add_argument("--jobs", type=int, default=128)
     ap.add_argument("--repeats", type=int, default=4)
     ap.add_argument("--timeout", type=int, default=300)
