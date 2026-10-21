@@ -1,0 +1,40 @@
+name: Keyhunt consolidated ARM64 research variants
+on:
+  push:
+    branches: [integration/keyhunt-all-experiments-20261021]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+jobs:
+  arm64-workers:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - name: Syntax and provenance checks
+        run: |
+          for s in tests/arm64-r7-promotion-gate.sh tests/arm64-r7-ecc-screen.sh tests/arm64-r8-pipeline-screen.sh tests/arm64-r9-pipeline-screen.sh tests/arm64-r10-oversub-screen.sh; do bash -n "$s"; done
+          python3 -m py_compile tests/arm64-sqlite-worker-ab.py tests/arm64-r1-worker-ab.py tests/arm64-r10-oversub-assess.py
+      - name: Compile production-compatible R1-R7 worker variants
+        run: make -j2 arm64-r3-ecc arm64-r6-ecc arm64-r7-ecc arm64-r7-unprofiled-variants
+      - name: Exact coverage, protocol and replay on all unprofiled R7 workers
+        run: make arm64-r7-unprofiled-variants-test
+      - name: Guard against R7 clock instrumentation in deployable variants
+        run: |
+          for candidate in keyhunt-worker-r7-ecc-sched-unprofiled keyhunt-worker-r7-ecc-pair-unprofiled keyhunt-worker-r7-ecc-fold-unprofiled; do
+            ! strings "$candidate" | grep -F 'R7_STAGES worker='
+          done
+          for profiled in keyhunt-worker-r7-ecc-sched keyhunt-worker-r7-ecc-pair keyhunt-worker-r7-ecc-fold; do
+            strings "$profiled" | grep -F 'R7_STAGES worker='
+          done
+  arm64-pipelines:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - name: Syntax of preserved R8-R10 benchmarks
+        run: |
+          for s in tests/arm64-r8-affine-screen.sh tests/arm64-r8-pipeline-screen.sh tests/arm64-r9-pipeline-screen.sh tests/arm64-r10-oversub-screen.sh; do bash -n "$s"; done
+          python3 -m py_compile tests/arm64-r8-affine-assess.py tests/arm64-r8-pipeline-assess.py tests/arm64-r9-pipeline-assess.py tests/arm64-r10-oversub-assess.py
+      - name: Compile all R8-R10 standalone research executables
+        run: make -j2 arm64-r8-affine arm64-r8-pipeline arm64-r9-pipeline arm64-r10-pipeline
+      - name: R8-R10 mathematical and indexed HASH160 correctness
+        run: make arm64-r8-affine-test arm64-r8-pipeline-test arm64-r9-pipeline-test arm64-r10-pipeline-test
