@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Integration: real NEON worker controlled by SQLite keypool, no daemon activation."""
 import importlib.util
+import os
 from pathlib import Path
 import tempfile
 
@@ -11,7 +12,7 @@ spec.loader.exec_module(pool)
 
 
 def main():
-    worker = ROOT / "keyhunt-worker"
+    worker = ROOT / os.environ.get("KEYHUNT_WORKER_BIN", "keyhunt-worker")
     assert worker.is_file(), "make arm64-worker first"
     with tempfile.TemporaryDirectory(prefix="keypool-real-worker-") as td:
         root = Path(td)

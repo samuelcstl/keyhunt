@@ -466,3 +466,439 @@ arm64-worker: keyhunt-worker
 
 arm64-worker-test: arm64-worker
 	python3 tests/arm64-worker-protocol.py
+
+# CPU R1 source-level waste probes. Champion and production worker are unchanged.
+# Separate objects preserve exact source/flags A/B attribution on the Pi.
+ARM64_R1_FLAGS := -DKEYHUNT_INCREMENTAL_CENTER -DKEYHUNT_Y_PARITY \
+  -DKEYHUNT_POINT_ALGEBRA -DKEYHUNT_SINGLE_TARGET_DIRECT \
+  -DKEYHUNT_NEON_TARGET_COMPARE
+
+build/arm64/keyhunt-r1-stride4.o: keyhunt.cpp
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) $(ARM64_R1_FLAGS) -DKEYHUNT_R1_STRIDE4 -c $< -o $@
+
+build/arm64/keyhunt-r1-neg-y.o: keyhunt.cpp
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) $(ARM64_R1_FLAGS) -DKEYHUNT_R1_NEG_GN_Y -c $< -o $@
+
+build/arm64/keyhunt-r1-zero-mask.o: keyhunt.cpp
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) $(ARM64_R1_FLAGS) -DKEYHUNT_R1_ZERO_MASK -c $< -o $@
+
+build/arm64/keyhunt-r1-all.o: keyhunt.cpp
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) $(ARM64_R1_FLAGS) \
+	  -DKEYHUNT_R1_STRIDE4 -DKEYHUNT_R1_NEG_GN_Y -DKEYHUNT_R1_ZERO_MASK -c $< -o $@
+
+keyhunt-r1-stride4: $(ARM64_FIELD_POINT_COMMON_OBJS) build/arm64/keyhunt-r1-stride4.o
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread
+
+keyhunt-r1-neg-y: $(ARM64_FIELD_POINT_COMMON_OBJS) build/arm64/keyhunt-r1-neg-y.o
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread
+
+keyhunt-r1-zero-mask: $(ARM64_FIELD_POINT_COMMON_OBJS) build/arm64/keyhunt-r1-zero-mask.o
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread
+
+keyhunt-r1-all: $(ARM64_FIELD_POINT_COMMON_OBJS) build/arm64/keyhunt-r1-all.o
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread
+
+build/arm64/keyhunt-pool-worker-r1.o: keyhunt.cpp
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) $(ARM64_R1_FLAGS) \
+	  -DKEYHUNT_POOL_WORKER -DKEYHUNT_R1_STRIDE4 \
+	  -DKEYHUNT_R1_NEG_GN_Y -DKEYHUNT_R1_ZERO_MASK -c $< -o $@
+
+keyhunt-worker-r1: $(ARM64_FIELD_POINT_COMMON_OBJS) build/arm64/keyhunt-pool-worker-r1.o
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread
+
+.PHONY: arm64-r1 arm64-r1-test
+arm64-r1: arm64-neon-target arm64-worker \
+  keyhunt-r1-stride4 keyhunt-r1-neg-y keyhunt-r1-zero-mask keyhunt-r1-all \
+  keyhunt-worker-r1
+
+# Test independent flags individually; never overwrite the stable worker.
+arm64-r1-test: arm64-r1
+	@set -e; for bin in keyhunt-r1-stride4 keyhunt-r1-neg-y keyhunt-r1-zero-mask keyhunt-r1-all; do \
+	  KEYHUNT_BIN=$$bin bash tests/arm64-smoke.sh; \
+	  KEYHUNT_BIN=$$bin python3 tests/arm64-vectors.py; \
+	  KEYHUNT_BIN=$$bin bash tests/arm64-solved-fixtures.sh; \
+	done
+	KEYHUNT_WORKER_BIN=keyhunt-worker-r1 python3 tests/arm64-worker-protocol.py
+	KEYHUNT_WORKER_BIN=keyhunt-worker-r1 python3 tests/keypool-puzzle20-exhaustive.py
+
+# R2 first microarchitectural experiment: NEON fixed-width RIPEMD160 ROL.
+# ECC, SHA256, Keypool protocol and the R1 worker are IDENTICAL to their
+# controls. Link a separate RIPEMD object to avoid touching normal builds.
+ARM64_R2_RIPEMD_CORE := $(filter-out build/arm64/hash/ripemd160_neon4.o,$(ARM64_FIELD_POINT_COMMON_OBJS))
+
+build/arm64/hash/ripemd160_neon4-rot-sli.o: hash/ripemd160_neon4.cpp
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -DKEYHUNT_RIPEMD_ROL_SLI -c $< -o $@
+
+build/arm64/hash/ripemd160_neon4-rot-sri.o: hash/ripemd160_neon4.cpp
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -DKEYHUNT_RIPEMD_ROL_SRI -c $< -o $@
+
+keyhunt-r2-ripemd-sli: $(ARM64_R2_RIPEMD_CORE) build/arm64/hash/ripemd160_neon4-rot-sli.o build/arm64/keyhunt-r1-all.o
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread
+
+keyhunt-r2-ripemd-sri: $(ARM64_R2_RIPEMD_CORE) build/arm64/hash/ripemd160_neon4-rot-sri.o build/arm64/keyhunt-r1-all.o
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread
+
+keyhunt-worker-r2-ripemd-sli: $(ARM64_R2_RIPEMD_CORE) build/arm64/hash/ripemd160_neon4-rot-sli.o build/arm64/keyhunt-pool-worker-r1.o
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread
+
+keyhunt-worker-r2-ripemd-sri: $(ARM64_R2_RIPEMD_CORE) build/arm64/hash/ripemd160_neon4-rot-sri.o build/arm64/keyhunt-pool-worker-r1.o
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread
+
+build/arm64/neon-target-check-r2-sli: tests/arm64-neon-target-check.cpp build/arm64/hash/ripemd160_neon4-rot-sli.o
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^
+
+build/arm64/neon-target-check-r2-sri: tests/arm64-neon-target-check.cpp build/arm64/hash/ripemd160_neon4-rot-sri.o
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^
+
+.PHONY: arm64-r2-ripemd arm64-r2-ripemd-test
+arm64-r2-ripemd: keyhunt-r1-all keyhunt-worker-r1 \
+  keyhunt-r2-ripemd-sli keyhunt-r2-ripemd-sri \
+  keyhunt-worker-r2-ripemd-sli keyhunt-worker-r2-ripemd-sri \
+  build/arm64/neon-target-check-r2-sli build/arm64/neon-target-check-r2-sri
+
+arm64-r2-ripemd-test: arm64-r2-ripemd
+	build/arm64/neon-target-check-r2-sli
+	build/arm64/neon-target-check-r2-sri
+	python3 tests/arm64-r2-ripemd-asm.py \
+	  keyhunt-r1-all keyhunt-r2-ripemd-sli keyhunt-r2-ripemd-sri
+	@set -e; for bin in keyhunt-r2-ripemd-sli keyhunt-r2-ripemd-sri; do \
+	  KEYHUNT_BIN=$$bin bash tests/arm64-smoke.sh; \
+	  KEYHUNT_BIN=$$bin python3 tests/arm64-vectors.py; \
+	  KEYHUNT_BIN=$$bin bash tests/arm64-solved-fixtures.sh; \
+	done
+	@set -e; for worker in keyhunt-worker-r2-ripemd-sli keyhunt-worker-r2-ripemd-sri; do \
+	  KEYHUNT_WORKER_BIN=$$worker python3 tests/arm64-worker-protocol.py; \
+	  KEYHUNT_WORKER_BIN=$$worker python3 tests/keypool-puzzle20-exhaustive.py; \
+	done
+
+# R3 ECC experiment, stacked on the measured R2 SRI candidate.
+# R2-SRI is the immutable control. R3-sched changes instruction scheduling;
+# R3-neon changes ONLY the two independent slope numerators to NEON SUB2.
+R3_ECC_FLAGS := -DKEYHUNT_INCREMENTAL_CENTER -DKEYHUNT_Y_PARITY \
+  -DKEYHUNT_POINT_ALGEBRA -DKEYHUNT_SINGLE_TARGET_DIRECT \
+  -DKEYHUNT_NEON_TARGET_COMPARE -DKEYHUNT_R1_STRIDE4 \
+  -DKEYHUNT_R1_NEG_GN_Y -DKEYHUNT_R1_ZERO_MASK \
+  -DKEYHUNT_ECC_PAIR_SCHED
+
+build/arm64/secp256k1/field_k1_neon_pair.o: secp256k1/field_k1_neon_pair.cpp secp256k1/field_k1_neon_pair.h
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -c $< -o $@
+
+build/arm64/keyhunt-r3-ecc-sched.o: keyhunt.cpp
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) $(R3_ECC_FLAGS) -c $< -o $@
+
+build/arm64/keyhunt-r3-ecc-neon.o: keyhunt.cpp
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) $(R3_ECC_FLAGS) -DKEYHUNT_ECC_NEON_SUB2 -c $< -o $@
+
+build/arm64/keyhunt-r3-ecc-sched-worker.o: keyhunt.cpp
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) $(R3_ECC_FLAGS) -DKEYHUNT_POOL_WORKER -c $< -o $@
+
+build/arm64/keyhunt-r3-ecc-neon-worker.o: keyhunt.cpp
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) $(R3_ECC_FLAGS) -DKEYHUNT_ECC_NEON_SUB2 -DKEYHUNT_POOL_WORKER -c $< -o $@
+
+keyhunt-r3-ecc-sched: $(ARM64_R2_RIPEMD_CORE) build/arm64/hash/ripemd160_neon4-rot-sri.o build/arm64/keyhunt-r3-ecc-sched.o
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread
+
+keyhunt-r3-ecc-neon: $(ARM64_R2_RIPEMD_CORE) build/arm64/hash/ripemd160_neon4-rot-sri.o build/arm64/secp256k1/field_k1_neon_pair.o build/arm64/keyhunt-r3-ecc-neon.o
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread
+
+keyhunt-worker-r3-ecc-sched: $(ARM64_R2_RIPEMD_CORE) build/arm64/hash/ripemd160_neon4-rot-sri.o build/arm64/keyhunt-r3-ecc-sched-worker.o
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread
+
+keyhunt-worker-r3-ecc-neon: $(ARM64_R2_RIPEMD_CORE) build/arm64/hash/ripemd160_neon4-rot-sri.o build/arm64/secp256k1/field_k1_neon_pair.o build/arm64/keyhunt-r3-ecc-neon-worker.o
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread
+
+build/arm64/ecc-neon-sub2-check: tests/arm64-ecc-neon-sub2-check.cpp \
+  build/arm64/secp256k1/field_k1_neon_pair.o \
+  build/arm64/secp256k1/Int.o build/arm64/secp256k1/IntMod-field-mul-sqr.o \
+  build/arm64/secp256k1/Random.o build/arm64/secp256k1/IntGroup.o \
+  build/arm64/secp256k1/field_k1_arm64.o
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^
+
+.PHONY: arm64-r3-ecc arm64-r3-ecc-test
+arm64-r3-ecc: keyhunt-r2-ripemd-sri keyhunt-worker-r2-ripemd-sri \
+  keyhunt-r3-ecc-sched keyhunt-r3-ecc-neon \
+  keyhunt-worker-r3-ecc-sched keyhunt-worker-r3-ecc-neon \
+  build/arm64/ecc-neon-sub2-check
+
+arm64-r3-ecc-test: arm64-r3-ecc
+	build/arm64/ecc-neon-sub2-check
+	@set -e; for bin in keyhunt-r3-ecc-sched keyhunt-r3-ecc-neon; do \
+	  KEYHUNT_BIN=$$bin bash tests/arm64-smoke.sh; \
+	  KEYHUNT_BIN=$$bin python3 tests/arm64-vectors.py; \
+	  KEYHUNT_BIN=$$bin bash tests/arm64-solved-fixtures.sh; \
+	done
+	@set -e; for worker in keyhunt-worker-r3-ecc-sched keyhunt-worker-r3-ecc-neon; do \
+	  KEYHUNT_WORKER_BIN=$$worker python3 tests/arm64-worker-protocol.py; \
+	  KEYHUNT_WORKER_BIN=$$worker python3 tests/keypool-puzzle20-exhaustive.py; \
+	done
+
+# R4 is an isolated field-kernel SCREEN only. It never replaces IntMod,
+# the point generator, the default worker, or the persistent campaign.
+# Use short reverse-order 2-second microbench samples before integration.
+build/arm64/ecc-radix-screen: tests/arm64-r4-ecc-radix-screen.cpp \
+  build/arm64/secp256k1/field_k1_arm64.o
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^
+
+.PHONY: arm64-r4-ecc-build arm64-r4-ecc-test
+arm64-r4-ecc-build: build/arm64/ecc-radix-screen
+arm64-r4-ecc-test: arm64-r4-ecc-build
+	build/arm64/ecc-radix-screen --verify 5000
+
+# R5 ILP/resident-radix field chain SCREEN. Isolated executable, never
+# linked into any Keyhunt or Keypool production binary.
+build/arm64/ecc-r5-chains: tests/arm64-r5-ecc-chains.cpp \
+  build/arm64/secp256k1/field_k1_arm64.o
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^
+
+.PHONY: arm64-r5-ecc-build arm64-r5-ecc-test
+arm64-r5-ecc-build: build/arm64/ecc-r5-chains
+arm64-r5-ecc-test: arm64-r5-ecc-build
+	build/arm64/ecc-r5-chains --verify 2000
+	python3 tests/arm64-r5-ecc-oracle.py
+
+# R6 short end-to-end worker qualification for the R5 paired-field winner.
+# Both candidates share the R3 SCHED point/hashing baseline; only the two
+# independent +/- slopes' 4x64 multiplications change.
+R6_ECC_COMMON := $(R3_ECC_FLAGS)
+
+build/arm64/secp256k1/field_k1_pair_ilp.o: secp256k1/field_k1_pair_ilp.cpp secp256k1/field_k1_pair_ilp.h
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -c $< -o $@
+
+build/arm64/keyhunt-r6-mul.o: keyhunt.cpp
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) $(R6_ECC_COMMON) -DKEYHUNT_R6_ECC_PAIR_MUL -c $< -o $@
+
+build/arm64/keyhunt-r6-fold.o: keyhunt.cpp
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) $(R6_ECC_COMMON) -DKEYHUNT_R6_ECC_PAIR_FOLD -c $< -o $@
+
+build/arm64/keyhunt-r6-mul-worker.o: keyhunt.cpp
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) $(R6_ECC_COMMON) -DKEYHUNT_POOL_WORKER -DKEYHUNT_R6_ECC_PAIR_MUL -c $< -o $@
+
+build/arm64/keyhunt-r6-fold-worker.o: keyhunt.cpp
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) $(R6_ECC_COMMON) -DKEYHUNT_POOL_WORKER -DKEYHUNT_R6_ECC_PAIR_FOLD -c $< -o $@
+
+R6_SHARED := $(ARM64_R2_RIPEMD_CORE) build/arm64/hash/ripemd160_neon4-rot-sri.o
+R6_PAIR := build/arm64/secp256k1/field_k1_pair_ilp.o
+
+keyhunt-r6-ecc-pair: $(R6_SHARED) $(R6_PAIR) build/arm64/keyhunt-r6-mul.o
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread
+
+keyhunt-r6-ecc-fold: $(R6_SHARED) $(R6_PAIR) build/arm64/keyhunt-r6-fold.o
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread
+
+keyhunt-worker-r6-ecc-pair: $(R6_SHARED) $(R6_PAIR) build/arm64/keyhunt-r6-mul-worker.o
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread
+
+keyhunt-worker-r6-ecc-fold: $(R6_SHARED) $(R6_PAIR) build/arm64/keyhunt-r6-fold-worker.o
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread
+
+build/arm64/ecc-r6-pair-oracle: tests/arm64-r6-pair-oracle.cpp \
+  build/arm64/secp256k1/field_k1_pair_ilp.o build/arm64/secp256k1/field_k1_arm64.o
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^
+
+.PHONY: arm64-r6-ecc arm64-r6-ecc-test
+arm64-r6-ecc: keyhunt-worker-r3-ecc-sched \
+  keyhunt-r6-ecc-pair keyhunt-r6-ecc-fold \
+  keyhunt-worker-r6-ecc-pair keyhunt-worker-r6-ecc-fold \
+  build/arm64/ecc-r6-pair-oracle
+
+arm64-r6-ecc-test: arm64-r6-ecc
+	build/arm64/ecc-r6-pair-oracle
+	@set -e; for bin in keyhunt-r6-ecc-pair keyhunt-r6-ecc-fold; do \
+	  KEYHUNT_BIN=$$bin bash tests/arm64-smoke.sh; \
+	  KEYHUNT_BIN=$$bin python3 tests/arm64-vectors.py; \
+	  KEYHUNT_BIN=$$bin bash tests/arm64-solved-fixtures.sh; \
+	done
+	@set -e; for worker in keyhunt-worker-r6-ecc-pair keyhunt-worker-r6-ecc-fold; do \
+	  KEYHUNT_WORKER_BIN=$$worker python3 tests/arm64-worker-protocol.py; \
+	  KEYHUNT_WORKER_BIN=$$worker python3 tests/keypool-puzzle20-exhaustive.py; \
+	done
+
+# R7: test persistence of PLUS/MINUS independent ECC computation into both
+# X and Y coordinates; immutable R3 worker is the control.
+R7_ECC_COMMON := $(R3_ECC_FLAGS)
+R7_SHARED := $(R6_SHARED) $(R6_PAIR)
+
+build/arm64/keyhunt-r7-sched.o: keyhunt.cpp
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) $(R7_ECC_COMMON) -DKEYHUNT_R7_ECC_PIPE_SCHED -c $< -o $@
+
+build/arm64/keyhunt-r7-pair.o: keyhunt.cpp
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) $(R7_ECC_COMMON) -DKEYHUNT_R7_ECC_PIPE_PAIR -c $< -o $@
+
+build/arm64/keyhunt-r7-fold.o: keyhunt.cpp
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) $(R7_ECC_COMMON) -DKEYHUNT_R7_ECC_PIPE_FOLD -c $< -o $@
+
+build/arm64/keyhunt-r7-sched-worker.o: keyhunt.cpp
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) $(R7_ECC_COMMON) -DKEYHUNT_POOL_WORKER -DKEYHUNT_R7_ECC_PIPE_SCHED -DKEYHUNT_R7_STAGE_STATS -c $< -o $@
+
+build/arm64/keyhunt-r7-pair-worker.o: keyhunt.cpp
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) $(R7_ECC_COMMON) -DKEYHUNT_POOL_WORKER -DKEYHUNT_R7_ECC_PIPE_PAIR -DKEYHUNT_R7_STAGE_STATS -c $< -o $@
+
+build/arm64/keyhunt-r7-fold-worker.o: keyhunt.cpp
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) $(R7_ECC_COMMON) -DKEYHUNT_POOL_WORKER -DKEYHUNT_R7_ECC_PIPE_FOLD -DKEYHUNT_R7_STAGE_STATS -c $< -o $@
+
+keyhunt-r7-ecc-sched: $(R6_SHARED) build/arm64/keyhunt-r7-sched.o
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread
+
+keyhunt-r7-ecc-pair: $(R7_SHARED) build/arm64/keyhunt-r7-pair.o
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread
+
+keyhunt-r7-ecc-fold: $(R7_SHARED) build/arm64/keyhunt-r7-fold.o
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread
+
+keyhunt-worker-r7-ecc-sched: $(R6_SHARED) build/arm64/keyhunt-r7-sched-worker.o
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread
+
+keyhunt-worker-r7-ecc-pair: $(R7_SHARED) build/arm64/keyhunt-r7-pair-worker.o
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread
+
+keyhunt-worker-r7-ecc-fold: $(R7_SHARED) build/arm64/keyhunt-r7-fold-worker.o
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread
+
+build/arm64/ecc-r7-pair-oracle: tests/arm64-r7-pair-oracle.cpp \
+  build/arm64/secp256k1/field_k1_pair_ilp.o build/arm64/secp256k1/field_k1_arm64.o
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^
+
+.PHONY: arm64-r7-ecc arm64-r7-ecc-test
+arm64-r7-ecc: keyhunt-worker-r3-ecc-sched \
+  keyhunt-r7-ecc-sched keyhunt-r7-ecc-pair keyhunt-r7-ecc-fold \
+  keyhunt-worker-r7-ecc-sched keyhunt-worker-r7-ecc-pair keyhunt-worker-r7-ecc-fold \
+  build/arm64/ecc-r7-pair-oracle
+
+arm64-r7-ecc-test: arm64-r7-ecc
+	build/arm64/ecc-r7-pair-oracle
+	@set -e; for binary in keyhunt-r7-ecc-sched keyhunt-r7-ecc-pair keyhunt-r7-ecc-fold; do \
+	  KEYHUNT_BIN=$$binary bash tests/arm64-smoke.sh; \
+	  KEYHUNT_BIN=$$binary python3 tests/arm64-vectors.py; \
+	  KEYHUNT_BIN=$$binary bash tests/arm64-solved-fixtures.sh; \
+	done
+	@set -e; for worker in keyhunt-worker-r7-ecc-sched keyhunt-worker-r7-ecc-pair keyhunt-worker-r7-ecc-fold; do \
+	  KEYHUNT_WORKER_BIN=$$worker python3 tests/arm64-worker-protocol.py; \
+	  KEYHUNT_WORKER_BIN=$$worker python3 tests/keypool-puzzle20-exhaustive.py; \
+	done
+
+# Qualification-only R7-FOLD worker. Unlike the legacy R7-stage profiling
+# targets above, this builds without KEYHUNT_R7_STAGE_STATS and therefore
+# without per-batch clock calls / extra counters in the hot path.
+build/arm64/keyhunt-r7-fold-unprofiled-worker.o: keyhunt.cpp
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) $(R7_ECC_COMMON) -DKEYHUNT_POOL_WORKER -DKEYHUNT_R7_ECC_PIPE_FOLD -c $< -o $@
+
+keyhunt-worker-r7-ecc-fold-unprofiled: $(R7_SHARED) build/arm64/keyhunt-r7-fold-unprofiled-worker.o
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread
+
+.PHONY: arm64-r7-promotion-worker-test
+arm64-r7-promotion-worker-test: keyhunt-worker-r3-ecc-sched keyhunt-worker-r7-ecc-fold-unprofiled
+	KEYHUNT_WORKER_BIN=keyhunt-worker-r7-ecc-fold-unprofiled python3 tests/arm64-worker-protocol.py
+	KEYHUNT_WORKER_BIN=keyhunt-worker-r7-ecc-fold-unprofiled python3 tests/keypool-puzzle20-exhaustive.py
+
+# R8 isolated batch-affine inversion throughput, one inverse across
+# 513 denominators, segmented W=1,2,4,8,16 independent prefix/suffix chains.
+# No Keyhunt worker or production database mutation.
+build/arm64/r8-affine-batchscan: tests/arm64-r8-affine-batchscan.cpp \
+  build/arm64/secp256k1/Int.o \
+  build/arm64/secp256k1/IntMod-field-mul-sqr.o \
+  build/arm64/secp256k1/Random.o \
+  build/arm64/secp256k1/IntGroup.o \
+  build/arm64/secp256k1/field_k1_arm64.o
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^
+
+.PHONY: arm64-r8-affine arm64-r8-affine-test
+arm64-r8-affine: build/arm64/r8-affine-batchscan
+arm64-r8-affine-test: arm64-r8-affine
+	build/arm64/r8-affine-batchscan --verify
+
+# R8 real bounded ECC->HASH160 pipeline. Experiment-only independent
+# 2-thread executable, no Keypool/worker production linkage.
+build/arm64/r8-ecc-hash-pipeline: tests/arm64-r8-ecc-hash-pipeline.cpp \
+  $(ARM64_R2_RIPEMD_CORE) build/arm64/hash/ripemd160_neon4-rot-sri.o
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread
+
+.PHONY: arm64-r8-pipeline arm64-r8-pipeline-test
+arm64-r8-pipeline: build/arm64/r8-ecc-hash-pipeline
+arm64-r8-pipeline-test: arm64-r8-pipeline
+	@set -e; for width in 1 2 4 8 16; do \
+	  build/arm64/r8-ecc-hash-pipeline --width $$width --queue 8 --verify; \
+	done
+
+# R9: measured multi-producer ECC -> one HASH160 stage, experimental only.
+build/arm64/r9-multi-pipeline: tests/arm64-r9-multi-pipeline.cpp \
+  $(ARM64_R2_RIPEMD_CORE) build/arm64/hash/ripemd160_neon4-rot-sri.o
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread
+
+.PHONY: arm64-r9-pipeline arm64-r9-pipeline-test
+arm64-r9-pipeline: build/arm64/r9-multi-pipeline
+arm64-r9-pipeline-test: arm64-r9-pipeline
+	@set -e; for producers in 1 2 3; do \
+	  for width in 1 8 16; do \
+	    build/arm64/r9-multi-pipeline --producers $$producers \
+	      --width $$width --queue 8 --verify --verify-batches 2; \
+	  done; \
+	done
+
+# R10: independent OS producer/consumer thread counts (CPU overcommit screen).
+# No production worker or persistent Keypool touched.
+build/arm64/r10-oversub-pipeline: tests/arm64-r10-oversub-pipeline.cpp \
+  $(ARM64_R2_RIPEMD_CORE) build/arm64/hash/ripemd160_neon4-rot-sri.o
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread
+
+.PHONY: arm64-r10-pipeline arm64-r10-pipeline-test
+arm64-r10-pipeline: build/arm64/r10-oversub-pipeline
+arm64-r10-pipeline-test: arm64-r10-pipeline
+	@set -e; for config in 1:1 3:1 3:2 4:2 6:2 8:4; do \
+	  p=$$(printf '%s' "$$config" | cut -d: -f1); \
+	  h=$$(printf '%s' "$$config" | cut -d: -f2); \
+	  build/arm64/r10-oversub-pipeline --producers $$p --consumers $$h \
+	    --width 16 --queue 16 --verify --verify-batches 2; \
+	done
+
+# Parallel R7 unprofiled variants for fair full-chain benchmarks.
+# Legacy R7 worker names above are STAGE-INSTRUMENTED by design.
+build/arm64/keyhunt-r7-sched-unprofiled-worker.o: keyhunt.cpp
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) $(R7_ECC_COMMON) -DKEYHUNT_POOL_WORKER -DKEYHUNT_R7_ECC_PIPE_SCHED -c $< -o $@
+
+build/arm64/keyhunt-r7-pair-unprofiled-worker.o: keyhunt.cpp
+	@mkdir -p $(dir $@)
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) $(R7_ECC_COMMON) -DKEYHUNT_POOL_WORKER -DKEYHUNT_R7_ECC_PIPE_PAIR -c $< -o $@
+
+keyhunt-worker-r7-ecc-sched-unprofiled: $(R6_SHARED) build/arm64/keyhunt-r7-sched-unprofiled-worker.o
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread
+
+keyhunt-worker-r7-ecc-pair-unprofiled: $(R7_SHARED) build/arm64/keyhunt-r7-pair-unprofiled-worker.o
+	$(ARM64_CXX) $(ARM64_CXXFLAGS) -o $@ $^ -lm -lpthread
+
+.PHONY: arm64-r7-unprofiled-variants arm64-r7-unprofiled-variants-test
+arm64-r7-unprofiled-variants: keyhunt-worker-r7-ecc-sched-unprofiled keyhunt-worker-r7-ecc-pair-unprofiled keyhunt-worker-r7-ecc-fold-unprofiled
+arm64-r7-unprofiled-variants-test: arm64-r7-unprofiled-variants
+	@set -e; for w in keyhunt-worker-r7-ecc-sched-unprofiled keyhunt-worker-r7-ecc-pair-unprofiled keyhunt-worker-r7-ecc-fold-unprofiled; do \
+	  KEYHUNT_WORKER_BIN=$$w python3 tests/arm64-worker-protocol.py; \
+	  KEYHUNT_WORKER_BIN=$$w python3 tests/keypool-puzzle20-exhaustive.py; \
+	done

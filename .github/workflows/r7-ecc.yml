@@ -1,0 +1,28 @@
+name: R7 symmetric ECC X/Y pipeline correctness
+on:
+  push:
+    branches:
+      - experiment/pi5-r7-ecc-pipeline-20261018
+      - test/pi5-r7-promotion-gate-20261021
+  pull_request:
+    branches: [experiment/pi5-r7-ecc-pipeline-20261018]
+  workflow_dispatch:
+jobs:
+  arm64-r7:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - name: Driver syntax and failure-safe archive check
+        run: |
+          for script in tests/arm64-r7-ecc-screen.sh tests/arm64-r7-promotion-gate.sh tests/arm64-evidence-archive.sh; do
+            bash -n "$script"
+          done
+          python3 -m py_compile tests/arm64-r7-stage-assess.py tests/arm64-sqlite-worker-ab.py
+          # Ensure both long-worker and SQLite A/B call the identical unprofiled candidate.
+          test "$(grep -Fc -- '--candidate keyhunt-worker-r7-ecc-fold-unprofiled --jobs' tests/arm64-r7-promotion-gate.sh)" -eq 2
+          ! grep -Fq -- '--candidate keyhunt-worker-r7-ecc-fold --jobs' tests/arm64-r7-promotion-gate.sh
+          bash tests/arm64-evidence-archive-test.sh
+      - name: Build R3 baseline and R7 pipelined experimental binaries
+        run: make -j2 arm64-r7-ecc
+      - name: Cryptographic oracle, Puzzle20, worker protocol and crash replay
+        run: make arm64-r7-ecc-test arm64-r7-promotion-worker-test

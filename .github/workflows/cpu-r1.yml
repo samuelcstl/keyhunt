@@ -1,0 +1,32 @@
+name: Keyhunt Pi5 CPU R1 correctness
+on:
+  push:
+    branches: [experiment/pi5-cpu-r1-evidence-20261018]
+  workflow_dispatch:
+
+jobs:
+  arm64-r1:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect benchmark and Python instrumentation
+        run: |
+          bash -n tests/arm64-r1-evidence.sh tests/arm64-r1-reannotate.sh
+          python3 -m py_compile tests/arm64-r1-worker-ab.py tests/arm64-r1-assess.py
+          python3 tests/arm64-r1-worker-ab.py --help
+      - name: Compile isolated R1 controls and candidate
+        run: make -j2 arm64-r1
+      - name: Verify relevant ISA present in compiled binaries
+        run: |
+          objdump -d keyhunt-worker-r1 | grep -Eq 'sha256h2?'
+          objdump -d keyhunt-worker-r1 | grep -Eq 'sha256su0'
+          objdump -d keyhunt-worker-r1 | grep -Eq 'sha256su1'
+          objdump -d keyhunt-worker-r1 | grep -Eq 'umulh'
+      - name: Exact correctness and worker coverage
+        run: |
+          if grep -qi sha2 /proc/cpuinfo; then
+            make arm64-r1-test
+            KEYHUNT_WORKER_BIN=keyhunt-worker-r1 python3 tests/keypool-integration.py
+          else
+            echo "AArch64 runner lacks SHA2 execution; compile passed, physical Pi tests remain required"
+          fi
