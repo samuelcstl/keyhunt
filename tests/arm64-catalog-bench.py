@@ -157,7 +157,7 @@ def make_row(item, variant, rate, rep, elapsed, before, after):
     return {
         "kind": item["kind"], "id": item["id"], "family": item["family"],
         "profile": item["profile"],
-        "group": item.get("comparison_group", item["kind"] + "_" + item["family"]),
+        "group": item.get("comparison_group", item["kind"] + "_" + item["family"] + ("_" + item["profile"] if item["kind"] == "pipeline" else "")),
         "metric": item["metric"], "variant": variant,
         "rate": float(rate), "unit": item["unit"], "repeat": rep,
         "elapsed_s": round(elapsed, 5), "sha256": item["_sha"],
@@ -236,6 +236,27 @@ def summary(rows, entries, path):
         lines.append(
             f"{group}\t{ident}/{variant}\t{item['profile']}\t"
             f"{statistics.median(values):.6f}\t{len(values)}\t{item['unit']}")
+    # Quantify profiling cost *only* for matched algorithms/configurations.
+    # This is not a Keypool-vs-pipeline ranking.
+    profile_pairs = [
+        ("r7-sched-on", "r7-sched-off"),
+        ("r7-pair-on", "r7-pair-off"),
+        ("r7-fold-on", "r7-fold-off"),
+        ("r8-pipeline-on", "r8-pipeline-off"),
+        ("r9-pipeline-on", "r9-pipeline-off"),
+        ("r10-pipeline-on", "r10-pipeline-off"),
+    ]
+    lines.extend(["", "Instrumentation overhead (ON / OFF - 1), matched executable family:"])
+    for on, off in profile_pairs:
+        left = [r["rate"] for r in rows if r["id"] == on]
+        right = [r["rate"] for r in rows if r["id"] == off]
+        if not left or not right:
+            continue
+        if len(left) != len(right):
+            raise RuntimeError(f"Unbalanced instrumented pair: {on} / {off}")
+        penalty = 100 * (statistics.median(left) /
+                         statistics.median(right) - 1)
+        lines.append(f"{on} vs {off}: {penalty:+.3f}% throughput")
     result = "\n".join(lines) + "\n"
     path.write_text(result, encoding="utf-8")
     print(result, flush=True)
