@@ -75,6 +75,36 @@ creates a full `$HOME/r7-promotion-results-<run-id>.tar.gz` with checksums,
 including on failure; if a private hit is detected, archiving is suppressed.
 Keep such a case entirely local and private.
 
+## Physical Gate 1 result: uninstrumented Pi worker, 21 Oct 2026
+
+- Evidence: `r7-promotion-results-20261021T122540Z-2266739-worker.tar.gz`
+  (user-side copy may carry a local `(1)` suffix).
+- Uploaded TAR SHA256: `8f9f514b93f50ead6f234f493d2a280b2ec82db4f815c91a0ac981cea5689410`.
+- Tested commit: `4a0d368f86be88e703a1f7bf862543e571f436de`.
+- Archive integrity: **38/38 SHA256SUMS entries PASS**; both compiled ELF
+  worker digests match the recorded manifest. The unprofiled R7 binary has
+  no `R7_STAGES` marker. Worker protocol, Puzzle20 cryptographic fixtures,
+  exhaustive coverage and crash replay all PASS.
+- Six reversed pairs, each executable performing 268,435,456 distinct
+  diagnostic candidates (1,610,612,736 per worker):
+  R3-SCHED mean 7.148630 Mkeys/s; **R7-FOLD unprofiled mean 7.208112
+  Mkeys/s**. Paired improvements, in order: +0.2452%, +0.2779%, +2.1248%,
+  +1.1481%, +0.2616%, +0.9507%.
+  **6/6 wins**, paired median **+0.6143%**, paired mean +0.8347%.
+- Before/after Pi ARM clock samples ~2.4 GHz, `throttled=0x0`, sampled
+  temperature from 52.1 to 65.3 C. Other nodes/daemons were active;
+  no CPU isolation, per-core PMU or robust power study.
+- **Interpretation:** promising small repeatable improvement, sufficient to
+  advance to quota-limited scratch SQLite Gate 2. NOT permission to merge
+  as the production worker yet. Broad confidence intervals and external
+  load can affect this sub-1% gain.
+
+**Critical runner fix made after Gate 1:** the archived script's `sqlite`
+mode still named the *profiled* `keyhunt-worker-r7-ecc-fold`, even though
+Gate 1 correctly used the `-unprofiled` binary. PR #12 now uses the
+unprofiled candidate in **both** modes and has a CI guard preventing this
+regression. Fetch the latest qualification branch before Gate 2.
+
 ## Promotion criteria
 
 Do not promote a compiler microbenchmark gain alone. Look for a consistent
