@@ -32,7 +32,7 @@ production-compatible binary.
 
 **Instrumentation caveat:** the historical R7 workers were compiled
 with `KEYHUNT_R7_STAGE_STATS`; setting
-`KEYHUNT_R7_STAGE_PROFILE=0` only suppresses output, NOT timers, since
+`KEYHUNT_R7_STAGE_PROFILE=0` does NOT suppress either output or timers, since
 the code checks whether the environment variable exists. Therefore
 historical R7-SCHED and R7-PAIR negative A/Bs against uninstrumented R3
 must NOT be used to rank variants. R7 FOLD was retested with the
