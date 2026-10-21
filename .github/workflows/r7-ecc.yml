@@ -14,7 +14,9 @@ jobs:
       - uses: actions/checkout@v4
       - name: Driver syntax and failure-safe archive check
         run: |
-          bash -n tests/arm64-r7-ecc-screen.sh tests/arm64-r7-promotion-gate.sh tests/arm64-evidence-archive.sh
+          for script in tests/arm64-r7-ecc-screen.sh tests/arm64-r7-promotion-gate.sh tests/arm64-evidence-archive.sh; do
+            bash -n "$script"
+          done
           python3 -m py_compile tests/arm64-r7-stage-assess.py tests/arm64-sqlite-worker-ab.py
           bash tests/arm64-evidence-archive-test.sh
       - name: Build R3 baseline and R7 pipelined experimental binaries
