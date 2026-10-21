@@ -74,7 +74,7 @@ fi
 if [[ "$MODE" == worker ]]; then
   env -u KEYHUNT_R7_STAGE_PROFILE python3 "$ROOT/tests/arm64-r1-worker-ab.py" --control keyhunt-worker-r3-ecc-sched --candidate keyhunt-worker-r7-ecc-fold-unprofiled --jobs "${KEYHUNT_QUAL_JOBS:-256}" --repeats "${KEYHUNT_QUAL_REPEATS:-6}" --run-dir "$RUN/worker" 2>&1 | tee "$RUN/worker-benchmark.log"
 else
-  env -u KEYHUNT_R7_STAGE_PROFILE python3 "$ROOT/tests/arm64-sqlite-worker-ab.py" --control keyhunt-worker-r3-ecc-sched --candidate keyhunt-worker-r7-ecc-fold --jobs "${KEYHUNT_QUAL_JOBS:-128}" --repeats "${KEYHUNT_QUAL_REPEATS:-4}" --run-dir "$RUN/sqlite" 2>&1 | tee "$RUN/sqlite-benchmark.log"
+  env -u KEYHUNT_R7_STAGE_PROFILE python3 "$ROOT/tests/arm64-sqlite-worker-ab.py" --control keyhunt-worker-r3-ecc-sched --candidate keyhunt-worker-r7-ecc-fold-unprofiled --jobs "${KEYHUNT_QUAL_JOBS:-128}" --repeats "${KEYHUNT_QUAL_REPEATS:-4}" --run-dir "$RUN/sqlite" 2>&1 | tee "$RUN/sqlite-benchmark.log"
 fi
 ps -eo pid,ppid,stat,comm,%cpu --sort=-%cpu | head -35 > "$RUN/process-after.txt" || true
 if command -v vcgencmd >/dev/null; then
