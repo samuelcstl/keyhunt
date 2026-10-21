@@ -187,9 +187,15 @@ def observe_lab(item, idx, rep, folder, args, deadline):
         None)
     if header_idx is None:
         raise RuntimeError(f"Experiment lacks parseable CSV header: {log}")
-    parsed = list(csv.DictReader(io.StringIO("\n".join(lines[header_idx:]))))
+    # Benchmarks write valid CSV to stdout and end with a checksum on
+    # stderr. They share one evidence log, so checksum text is NOT a CSV row.
+    header = lines[header_idx]
+    expected_commas = header.count(",")
+    records = [line for line in lines[header_idx + 1:]
+               if line.count(",") == expected_commas]
+    parsed = list(csv.DictReader(io.StringIO("\n".join([header, *records]))))
     if not parsed:
-        raise RuntimeError(f"No measurements in {log}")
+        raise RuntimeError(f"No complete CSV measurements in {log}")
     out = []
     for row in parsed:
         if item["metric"] not in row:
