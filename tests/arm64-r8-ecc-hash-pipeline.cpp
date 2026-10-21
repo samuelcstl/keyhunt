@@ -98,18 +98,26 @@ struct Queue{
   explicit Queue(int capacity):slots(size_t(capacity)){}
   void push(const Packet&p){
     std::unique_lock<std::mutex>lock(m);
+    #ifdef KEYHUNT_PIPELINE_STAGE_STATS
     auto begin=Clock::now();
+    #endif
     space.wait(lock,[&]{return occupancy<slots.size();});
+    #ifdef KEYHUNT_PIPELINE_STAGE_STATS
     blocked_ns+=nano(begin,Clock::now());
+    #endif
     slots[wr]=p;wr=(wr+1)%slots.size();occupancy++;
     max_occupancy=std::max(max_occupancy,occupancy);
     ready.notify_one();
   }
   bool pop(Packet&p){
     std::unique_lock<std::mutex>lock(m);
+    #ifdef KEYHUNT_PIPELINE_STAGE_STATS
     auto begin=Clock::now();
+    #endif
     ready.wait(lock,[&]{return occupancy||done;});
+    #ifdef KEYHUNT_PIPELINE_STAGE_STATS
     idle_ns+=nano(begin,Clock::now());
+    #endif
     if(!occupancy)return false;
     p=slots[rd];rd=(rd+1)%slots.size();occupancy--;
     space.notify_one();
@@ -139,12 +147,16 @@ struct Engine{
   // After 511 symmetric point pairs, one remaining boundary point (offset 0)
   // is added explicitly. Center is offset 512. No omissions or duplicate keys.
   void produce_batch(uint64_t start,Point&center,int W,Queue&queue,Stats&st,bool verify){
+    #ifdef KEYHUNT_PIPELINE_STAGE_STATS
     const auto begin=Clock::now();
+    #endif
     std::array<Int,HALF+1> dx;
     for(int i=0;i<HALF;i++)dx[i].ModSub(&generator[i].x,&center.x);
     dx[HALF].ModSub(&twice_g.x,&center.x);
     IntGroup grp(HALF+1);grp.Set(dx.data());grp.ModInv();
+    #ifdef KEYHUNT_PIPELINE_STAGE_STATS
     const auto invdone=Clock::now();st.prep_ns+=nano(begin,invdone);
+    #endif
     std::array<Packet,4> assembling{};
     for(auto& p:assembling)p.group=-1;
     std::array<uint8_t,GROUP>seen{};
@@ -182,7 +194,9 @@ struct Engine{
         pkt.group=-1;
       }
     };
+    #ifdef KEYHUNT_PIPELINE_STAGE_STATS
     auto xybegin=Clock::now();
+    #endif
     emit(HALF,center);
     std::array<Int,MAX_LANES>aa{},bb{},slopes{},yy_a{},yy_b{},yy_out{};
     std::array<Point,MAX_W>plus{},minus{};
@@ -253,7 +267,9 @@ struct Engine{
     }
     for(const auto&p:assembling)if(p.mask)
       throw std::runtime_error("unflushed point packet");
+    #ifdef KEYHUNT_PIPELINE_STAGE_STATS
     st.xy_ns+=nano(xybegin,Clock::now());
+    #endif
   }
   void init_minus(){
     for(int i=0;i<HALF;i++){
@@ -279,10 +295,14 @@ struct Engine{
             throw std::runtime_error("consumer duplicate/out-of-range index");
         }
       }
+      #ifdef KEYHUNT_PIPELINE_STAGE_STATS
       const auto h0=Clock::now();
+      #endif
       uint8_t mask=secp.GetHash160_fromXYParityTarget(P2PKH,
         &points[0],&points[1],&points[2],&points[3],target);
+      #ifdef KEYHUNT_PIPELINE_STAGE_STATS
       st.hash_ns+=nano(h0,Clock::now());
+      #endif
       if(verify){
         uint8_t actual[4][20]{},reference[20]{};
         secp.GetHash160_fromXYParity(P2PKH,&points[0],&points[1],
