@@ -34,6 +34,12 @@ jobs:
           done
       - name: Crypto oracles, protocol and bounded crash replay
         run: make -j2 arm64-r7-unprofiled-variants-test arm64-pipelines-unprofiled-test
+      - name: Quick end-to-end catalog runner smoke (CI only, not Pi ranking)
+        run: |
+          mkdir -p ../runs/bench71
+          printf '%s\n' '1PWo3JeB9jrGwfHDNpdGK54CRas7fsVzXU' > ../runs/bench71/target.txt
+          python3 tests/arm64-catalog-bench.py --mode all --jobs 8 --repeats 1 --seconds 0.5 --max-seconds 180 --run-dir ../runs/catalog-ci-smoke
+
   catalog-labs:
     runs-on: ubuntu-24.04-arm
     steps:
