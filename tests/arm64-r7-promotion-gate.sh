@@ -67,10 +67,14 @@ for bin in keyhunt-worker-r3-ecc-sched keyhunt-worker-r7-ecc-fold-unprofiled; do
   sha256sum "$RUN/binaries/$bin" >> "$RUN/binaries.sha256"
   objdump -drwC "$ROOT/$bin" > "$RUN/$bin.disassembly.txt"
 done
+if strings "$ROOT/keyhunt-worker-r7-ecc-fold-unprofiled" | grep -q 'R7_STAGES worker='; then
+  echo "Unsafe candidate: R7 stage timing still compiled in" >&2
+  exit 2
+fi
 if [[ "$MODE" == worker ]]; then
-  KEYHUNT_R7_STAGE_PROFILE=0 python3 "$ROOT/tests/arm64-r1-worker-ab.py" --control keyhunt-worker-r3-ecc-sched --candidate keyhunt-worker-r7-ecc-fold-unprofiled --jobs "${KEYHUNT_QUAL_JOBS:-256}" --repeats "${KEYHUNT_QUAL_REPEATS:-6}" --run-dir "$RUN/worker" 2>&1 | tee "$RUN/worker-benchmark.log"
+  env -u KEYHUNT_R7_STAGE_PROFILE python3 "$ROOT/tests/arm64-r1-worker-ab.py" --control keyhunt-worker-r3-ecc-sched --candidate keyhunt-worker-r7-ecc-fold-unprofiled --jobs "${KEYHUNT_QUAL_JOBS:-256}" --repeats "${KEYHUNT_QUAL_REPEATS:-6}" --run-dir "$RUN/worker" 2>&1 | tee "$RUN/worker-benchmark.log"
 else
-  KEYHUNT_R7_STAGE_PROFILE=0 python3 "$ROOT/tests/arm64-sqlite-worker-ab.py" --control keyhunt-worker-r3-ecc-sched --candidate keyhunt-worker-r7-ecc-fold --jobs "${KEYHUNT_QUAL_JOBS:-128}" --repeats "${KEYHUNT_QUAL_REPEATS:-4}" --run-dir "$RUN/sqlite" 2>&1 | tee "$RUN/sqlite-benchmark.log"
+  env -u KEYHUNT_R7_STAGE_PROFILE python3 "$ROOT/tests/arm64-sqlite-worker-ab.py" --control keyhunt-worker-r3-ecc-sched --candidate keyhunt-worker-r7-ecc-fold --jobs "${KEYHUNT_QUAL_JOBS:-128}" --repeats "${KEYHUNT_QUAL_REPEATS:-4}" --run-dir "$RUN/sqlite" 2>&1 | tee "$RUN/sqlite-benchmark.log"
 fi
 ps -eo pid,ppid,stat,comm,%cpu --sort=-%cpu | head -35 > "$RUN/process-after.txt" || true
 if command -v vcgencmd >/dev/null; then
