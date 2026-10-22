@@ -31,10 +31,19 @@ anything. Preserve Bitcoin Core and ckpool services that feed the NerdQaxe:
 - CPU limited to **150% total by default** (adjustable from 50–200% at install), `Nice=10`, with Bitcoin Core and
   ckpool left running. `Restart=on-failure`, not `Restart=always`,
   so a successful verified hit stops without a busy restart loop.
-- Controller responds to SIGTERM, drains outstanding work and commits
-  the cursor. systemd allows 120s for graceful shutdown before killing
-  the process group. An abrupt power loss may replay uncommitted
-  chunks; already committed chunks remain durable.
+- systemd uses `KillMode=mixed`: SIGTERM goes to the Python
+  controller **before** the C++ worker. The controller stops dispatch,
+  drains already-sent jobs, and commits the cursor while the child remains
+  alive. After `TimeoutStopSec=120s`, systemd may forcibly terminate the
+  remaining cgroup if draining hangs. A forced stop or power loss can replay
+  at most the bounded uncommitted window; already committed chunks remain
+  durable.
+- Physical stop regression, 22 October 2026: initial 90-second smoke reached
+  cursor 770 from 520 at 150% total CPU (52.35 C, throttled=0), but the
+  prior `KillMode=control-group` terminated the child and left
+  `inflight=770`. The next safe startup is expected to reissue unfinished
+  work; **never edit SQLite manually**. Re-test controlled stop with this
+  corrected unit before enabling persistent operation.
 
 ## Deployment (only after PR reviewed and merged)
 
