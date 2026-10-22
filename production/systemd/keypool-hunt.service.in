@@ -19,7 +19,10 @@ ExecStart=/usr/bin/python3 %h/.local/share/keypool/current/keypoold.py run --db 
 Restart=on-failure
 RestartSec=20s
 TimeoutStopSec=120s
-KillMode=control-group
+# SIGTERM only the Python controller first; it stops dispatch and drains
+# already-sent jobs. The C++ worker remains alive until the parent exits.
+# systemd still kills the remaining cgroup on stop timeout.
+KillMode=mixed
 CPUAccounting=true
 CPUQuota=@CPU_QUOTA@
 Nice=10
