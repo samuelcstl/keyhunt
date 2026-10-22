@@ -1,5 +1,5 @@
 [Unit]
-Description=Keypool Puzzle71 persistent local search (NerdQaxe unaffected)
+Description=Keypool Puzzle 71 persistent search
 Documentation=https://github.com/samuelcstl/keyhunt
 After=default.target
 StartLimitIntervalSec=180
