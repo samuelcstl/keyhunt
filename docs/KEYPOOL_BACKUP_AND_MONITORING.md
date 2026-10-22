@@ -18,6 +18,34 @@ Service state, latest throughput, temperature and throttling:
 The existing keypool-health.timer writes a new health snapshot every five
 minutes when enabled.
 
+## Readable one-command status
+
+An optional standalone CLI formats the same read-only progress and health
+snapshots in human units. It lives in ~/.local/bin and follows the existing
+~/.local/share/keypool/current symlink; **installing it does not touch or
+restart the running hunter**.
+
+From the updated repository checkout:
+
+    mkdir -p ~/.local/bin
+    install -m 755 production/keypool_cli.py ~/.local/bin/keypool
+
+Available commands:
+
+    keypool                  # readable total coverage, current rate and next milestone
+    keypool status           # same readable summary
+    keypool health           # summary + inflight, recovery and stall details
+    keypool logs             # last 40 systemd journal entries
+    keypool --json           # original campaign JSON for scripts
+    keypool health --json    # original health JSON for scripts
+
+The progress bar deliberately describes the **next key-count milestone**
+(100 billion, then one trillion, etc.), not total keyspace coverage.
+The exact full-interval percentage is shown on a separate line so the
+visual never misrepresents search progress. Remaining time to the next
+milestone is conditional on the latest measured speed, not a guaranteed
+ETA for finding a private key.
+
 ## One-shot online SQLite backup
 
 The script uses sqlite3.Connection.backup() to take a consistent SQLite
