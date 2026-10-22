@@ -62,7 +62,7 @@ def duration(seconds):
         return "indisponible"
     if seconds >= 365.2425 * 86400:
         return "≈ " + fmt_float(seconds / (365.2425 * 86400), 1) + " ans"
-    n = int(round(seconds / 60))
+    n = int(seconds // 60)
     days, n = divmod(n, 1440)
     hours, minutes = divmod(n, 60)
     if days:
