@@ -84,14 +84,14 @@ def main():
         status_json = json.dumps(sample(keys, chunks))
         health_json = json.dumps(health)
         (release / "keypoold.py").write_text(
-            "import sys\\n"
-            f"if sys.argv[1:] != ['status']: sys.exit(7)\\n"
-            f"print({status_json!r})\\n".replace("\\\\n", "\\n"),
+            "import sys\n"
+            "if sys.argv[1:] != ['status']: sys.exit(7)\n"
+            f"print({status_json!r})\n",
             encoding="utf-8")
         (release / "keypool_health.py").write_text(
-            "import sys\\n"
-            "if sys.argv[1:]: sys.exit(8)\\n"
-            f"print({health_json!r})\\n".replace("\\\\n", "\\n"),
+            "import sys\n"
+            "if sys.argv[1:]: sys.exit(8)\n"
+            f"print({health_json!r})\n",
             encoding="utf-8")
         with mock.patch.object(cli, "RELEASE", release):
             for args, expected in (
