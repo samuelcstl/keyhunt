@@ -114,7 +114,8 @@ def render_service(name, cpu_quota=150):
     service = (template.replace("@WORKER@", name)
                .replace("@CPU_QUOTA@", str(cpu_quota) + "%"))
     if ("CPUQuota=" + str(cpu_quota) + "%" not in service
-            or "Restart=on-failure" not in service):
+            or "Restart=on-failure" not in service
+            or "KillMode=mixed" not in service):
         raise RuntimeError("Mandatory service guards removed")
     return service
 
