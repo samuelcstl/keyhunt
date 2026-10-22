@@ -116,9 +116,9 @@ the 1,610,612,736 candidate evaluations must not be counted as
 that many globally distinct new keys in Puzzle 71.
 
 All temperatures sampled 47.7–55.4 °C, ARM clock ~2.4 GHz,
-`throttled=0x0`. Core blockchain services remained active;
-the before-process snapshot showed bitcoind using substantial CPU
-(~29%), falling to ~7% after the run, a plausible source of noise.
+`throttled=0x0`. Concurrent host CPU load changed materially
+during the run (one background process fell from approximately 29%
+to 7% CPU), a plausible source of measurement noise.
 
 ### Complete measured SQLite throughput
 
