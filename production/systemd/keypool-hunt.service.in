@@ -1,0 +1,34 @@
+[Unit]
+Description=Keypool Puzzle 71 persistent search
+Documentation=https://github.com/samuelcstl/keyhunt
+After=default.target
+StartLimitIntervalSec=180
+StartLimitBurst=5
+ConditionPathExists=%h/.local/state/keypool/campaign.sqlite3
+
+[Service]
+Type=simple
+WorkingDirectory=%h/.local/share/keypool/current
+UMask=0077
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=KEYHUNT_WORKER_TRACE=0
+Environment=KEYHUNT_WORKER_COVERAGE=0
+Environment=KEYHUNT_R7_STAGE_PROFILE=0
+ExecStartPre=/usr/bin/python3 %h/.local/share/keypool/current/keypool_preflight.py --db %h/.local/state/keypool/campaign.sqlite3 --worker @WORKER@
+ExecStart=/usr/bin/python3 %h/.local/share/keypool/current/keypoold.py run --db %h/.local/state/keypool/campaign.sqlite3 --worker %h/.local/share/keypool/current/@WORKER@ --max-jobs 0 --timeout 300 --window 4
+Restart=on-failure
+RestartSec=20s
+TimeoutStopSec=120s
+# SIGTERM only the Python controller first; it stops dispatch and drains
+# already-sent jobs. The C++ worker remains alive until the parent exits.
+# systemd still kills the remaining cgroup on stop timeout.
+KillMode=mixed
+CPUAccounting=true
+CPUQuota=@CPU_QUOTA@
+Nice=10
+TasksMax=64
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

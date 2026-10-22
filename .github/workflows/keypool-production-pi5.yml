@@ -1,0 +1,29 @@
+name: Pi5 Keypool production staging safety
+on:
+  push:
+    branches: [feature/keypool-production-24x7-20261021]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  static-and-fixture:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - name: Syntax and unit template guards
+        run: |
+          python3 -m py_compile production/keypool_preflight.py production/keypool_health.py production/install_keypool.py tests/keypool-production-preflight-test.py tests/keypool-graceful-stop-test.py
+          python3 production/install_keypool.py --validate-template
+      - name: Read-only campaign fixture and immutable SHA guards
+        run: python3 tests/keypool-production-preflight-test.py
+      - name: SIGTERM controller-only graceful drain and resume
+        run: python3 tests/keypool-graceful-stop-test.py
+      - name: Exact ARM64 R7-FOLD and fallback worker correctness
+        run: |
+          make -j2 keyhunt-worker-r7-ecc-fold-unprofiled keyhunt-worker-r7-ecc-pair-unprofiled keyhunt-worker-r3-ecc-sched
+          for worker in keyhunt-worker-r7-ecc-fold-unprofiled keyhunt-worker-r7-ecc-pair-unprofiled keyhunt-worker-r3-ecc-sched; do
+            KEYHUNT_WORKER_BIN="$worker" python3 tests/arm64-worker-protocol.py
+            KEYHUNT_WORKER_BIN="$worker" python3 tests/keypool-puzzle20-exhaustive.py
+            ! strings "$worker" | grep -Fq 'R7_STAGES worker='
+          done

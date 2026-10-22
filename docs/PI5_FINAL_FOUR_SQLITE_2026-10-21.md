@@ -1,9 +1,8 @@
 # Pi 5 four-worker finale, October 21 2026
 
-**Purpose:** a single useful 10–15-minute (target) final qualification
-after reboot, with **Bitcoin Core + ckpool left active** so that NerdQaxe
-continues uninterrupted. This is NOT intended to benchmark every R1–R10
-microbenchmark again.
+**Purpose:** a 10–15-minute final qualification on a shared-load Pi 5,
+without changing unrelated host services. This is not intended to rerun
+every R1–R10 microbenchmark.
 
 ## The final four
 
@@ -19,10 +18,9 @@ compiled into the chosen R7 binaries.
 
 ## Pi setup
 
-After reboot, allow the Bitcoin node to finish any catch-up or startup
-resource spike. **Do not stop Bitcoin Core or ckpool for the benchmark**.
-Ensure the *old Keypool background benchmark or campaign worker itself*
-is not running; do not alter its SQLite database.
+After reboot, allow normal host startup workload to settle.
+Ensure no other Keypool benchmark or live campaign worker is running,
+and preserve the existing SQLite campaign database.
 
 Reuse the already compiled catalog worktree, avoiding a lengthy clean build:
 
@@ -70,7 +68,7 @@ missing/wrong CPU quota before executing the measured rounds.
 - Sample clock, Pi temperature, throttling before/after, CPU quota
   and process list. Include actual source commit and all worker SHA256s.
 - Expected: roughly 9–12 minutes on a reasonably idle Pi5 under
-  CPUQuota=150%. Runtime varies with blockchain node load.
+  CPUQuota=150%. Runtime varies with concurrent host load.
   A strict 960-second global measure budget and 180-second per-observation
   timeout prevent an unattended multi-hour exercise; build has a separate
   240-second cap if any compiled target is stale or missing.
@@ -84,7 +82,7 @@ missing/wrong CPU quota before executing the measured rounds.
 Use **same-round rate ratios vs R3** plus all six pairwise comparisons
 and 4-round median/mean. Each engine occupies each test slot once,
 reducing order bias. Because these comparisons use only four rounds
-and there are still active blockchain services, small margins should
+and other processes may share the CPU, small margins should
 not be promoted without checking drift, throttling, run variability and
 the already recorded earlier R7-FOLD qualification.
 
