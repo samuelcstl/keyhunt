@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Zero-network, zero-systemd integration tests of fail-closed Keypool release."""
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -9,6 +10,7 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "pool"))
@@ -91,6 +93,36 @@ def main():
         assert report["completed_chunks"] == 0 and report["found"] is False
         assert "seed" not in health_file.read_text().lower()
         assert "key" not in json.dumps(report).lower().replace("keys", "")
+        # New 24/7 telemetry is best-effort: sensors may be absent on CI.
+        spec = importlib.util.spec_from_file_location(
+            "keypool_health_under_test", ROOT / "production/keypool_health.py")
+        health_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(health_module)
+        fake_temp = base / "fake_cpu_temp"
+        fake_temp.write_text("55430", encoding="ascii")
+        assert health_module.cpu_temperature_c(fake_temp) == 55.43
+        fake_temp.write_text("not-a-sensor", encoding="ascii")
+        assert health_module.cpu_temperature_c(fake_temp) is None
+        with patch.object(health_module.subprocess, "run",
+                          return_value=subprocess.CompletedProcess(
+                              ["vcgencmd"], 0, "throttled=0x50005\\n", "")):
+            assert health_module.pi_throttle_flags() == "0x50005"
+        with patch.object(health_module, "read_progress", return_value={
+                "chunks": 101, "inflight": None, "reissued": 0, "found": 0}), \\
+             patch.object(health_module, "load_previous", return_value={
+                "unix_time": 1000.0, "completed_chunks": 101,
+                "active_state": "active", "last_progress_unix": 100.0}), \\
+             patch.object(health_module, "systemd_active", return_value="active"), \\
+             patch.object(health_module.time, "time", return_value=1300.0), \\
+             patch.object(health_module, "cpu_temperature_c", return_value=55.43), \\
+             patch.object(health_module, "pi_throttle_flags", return_value="0x50005"):
+            monitored = health_module.snapshot(campaign)
+            assert monitored["stall_suspected"]
+            assert monitored["seconds_since_progress"] == 1200
+            assert monitored["pi_throttling_now"]
+            assert monitored["pi_throttling_seen"]
+            assert monitored["cpu_temperature_c"] == 55.43
+
         check_template = invoke(ROOT / "production/install_keypool.py",
                                 "--validate-template")
         assert check_template.returncode == 0, check_template.stderr
