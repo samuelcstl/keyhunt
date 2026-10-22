@@ -16,7 +16,7 @@
   hashes remain useful for checking against binaries retained on the Pi.
 - Raspberry Pi 5, aarch64 Debian, GCC 14.2.0, clock sampled near 2.4 GHz,
   `throttled=0x0` on all sampled observations; measured temperatures
-  55.4–64.2 C. Blockchain nodes, ckpool and Chromium remained active.
+  55.4–64.2 C. Unrelated user workloads remained active during measurement.
 - All 23 catalog entries have two observations. `results.tsv` has
   74 lines of data: 28 worker throughput rows, 12 pipeline rows and
   34 field/microbenchmark subvariant rows. All 46 catalog
