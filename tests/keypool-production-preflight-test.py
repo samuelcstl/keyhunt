@@ -105,16 +105,16 @@ def main():
         assert health_module.cpu_temperature_c(fake_temp) is None
         with patch.object(health_module.subprocess, "run",
                           return_value=subprocess.CompletedProcess(
-                              ["vcgencmd"], 0, "throttled=0x50005\\n", "")):
+                              ["vcgencmd"], 0, "throttled=0x50005\n", "")):
             assert health_module.pi_throttle_flags() == "0x50005"
         with patch.object(health_module, "read_progress", return_value={
-                "chunks": 101, "inflight": None, "reissued": 0, "found": 0}), \\
+                "chunks": 101, "inflight": None, "reissued": 0, "found": 0}), \
              patch.object(health_module, "load_previous", return_value={
                 "unix_time": 1000.0, "completed_chunks": 101,
-                "active_state": "active", "last_progress_unix": 100.0}), \\
-             patch.object(health_module, "systemd_active", return_value="active"), \\
-             patch.object(health_module.time, "time", return_value=1300.0), \\
-             patch.object(health_module, "cpu_temperature_c", return_value=55.43), \\
+                "active_state": "active", "last_progress_unix": 100.0}), \
+             patch.object(health_module, "systemd_active", return_value="active"), \
+             patch.object(health_module.time, "time", return_value=1300.0), \
+             patch.object(health_module, "cpu_temperature_c", return_value=55.43), \
              patch.object(health_module, "pi_throttle_flags", return_value="0x50005"):
             monitored = health_module.snapshot(campaign)
             assert monitored["stall_suspected"]
