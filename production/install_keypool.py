@@ -101,14 +101,20 @@ def build_workers():
         test_worker(name)
 
 
-def render_service(name):
+def render_service(name, cpu_quota=150):
     template = (ROOT / "production/systemd/keypool-hunt.service.in").read_text()
     if template.count("@WORKER@") != 2:
         raise RuntimeError("Unexpected unit template marker count")
     if name not in WORKERS:
         raise RuntimeError("Worker not in approved list")
-    service = template.replace("@WORKER@", name)
-    if "CPUQuota=150%" not in service or "Restart=on-failure" not in service:
+    if not 50 <= cpu_quota <= 200:
+        raise RuntimeError("CPU quota must be 50–200% total Pi CPU")
+    if template.count("@CPU_QUOTA@") != 1:
+        raise RuntimeError("Unexpected CPU quota template marker count")
+    service = (template.replace("@WORKER@", name)
+               .replace("@CPU_QUOTA@", str(cpu_quota) + "%"))
+    if ("CPUQuota=" + str(cpu_quota) + "%" not in service
+            or "Restart=on-failure" not in service):
         raise RuntimeError("Mandatory service guards removed")
     return service
 
@@ -130,7 +136,7 @@ def atomic_install(path, data):
             os.unlink(temp)
 
 
-def install(selected):
+def install(selected, cpu_quota=150):
     commit = source_commit()
     assert_user_service_inactive()
     if not DB.is_file():
@@ -187,7 +193,7 @@ def install(selected):
     os.replace(tmp_link, CURRENT)
 
     files = {
-        "keypool-hunt.service": render_service(selected),
+        "keypool-hunt.service": render_service(selected, cpu_quota),
         "keypool-health.service": (
             ROOT / "production/systemd/keypool-health.service").read_text(),
         "keypool-health.timer": (
@@ -201,6 +207,7 @@ def install(selected):
 
     print(json.dumps({
         "installed_release": str(dest), "selected_worker": selected,
+        "cpu_quota_percent": cpu_quota,
         "worker_sha256": manifest["approved_workers"][selected],
         "commit": commit, "service_state": "NOT started or enabled",
         "target_db": str(DB)
@@ -210,17 +217,19 @@ def install(selected):
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--worker", choices=WORKERS, default=WORKERS[0])
+    ap.add_argument("--cpu-quota", type=int, default=150, metavar="PERCENT",
+                    help="Total CPU quota, 50..200 percent (default 150)")
     ap.add_argument("--validate-template", action="store_true",
                     help="Only validate unit template content, no host writes")
     args = ap.parse_args()
     try:
         if args.validate_template:
             for worker in WORKERS:
-                unit = render_service(worker)
+                unit = render_service(worker, args.cpu_quota)
                 assert "ExecStartPre=" in unit and "--max-jobs 0" in unit
             print("PASS: three selectable workers; safe systemd template")
         else:
-            install(args.worker)
+            install(args.worker, args.cpu_quota)
         return 0
     except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired) as exc:
         print("Keypool deploy REFUSED: " + str(exc), file=sys.stderr)
