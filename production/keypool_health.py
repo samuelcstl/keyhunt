@@ -41,6 +41,32 @@ def systemd_active():
         return "unknown"
 
 
+
+def cpu_temperature_c(path=Path("/sys/class/thermal/thermal_zone0/temp")):
+    """Optional Pi thermal sensor, reported in Celsius."""
+    try:
+        value = float(path.read_text(encoding="ascii").strip()) / 1000.0
+        return round(value, 2) if 0 <= value <= 120 else None
+    except (OSError, ValueError):
+        return None
+
+
+def pi_throttle_flags():
+    """Optional Raspberry Pi under-voltage/throttle history; never block monitoring."""
+    try:
+        proc = subprocess.run(["vcgencmd", "get_throttled"], timeout=3,
+                              capture_output=True, text=True, check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    output = proc.stdout.strip().lower()
+    if proc.returncode or not output.startswith("throttled=0x"):
+        return None
+    try:
+        return hex(int(output.split("=", 1)[1], 16))
+    except ValueError:
+        return None
+
+
 def load_previous():
     try:
         return json.loads(HEALTH.read_text(encoding="utf-8"))
@@ -52,25 +78,45 @@ def snapshot(db):
     now = time.time()
     state = read_progress(db)
     previous = load_previous()
+    active = systemd_active()
     rate = None
+    last_progress = now
+    seconds_since_progress = 0
     if previous is not None:
         seconds = now - float(previous.get("unix_time", 0))
         previous_cursor = int(previous.get("completed_chunks", -1))
+        previous_active = previous.get("active_state")
         if 10 <= seconds <= 86400 and state["chunks"] >= previous_cursor >= 0:
             rate = round((state["chunks"] - previous_cursor) * CHUNK /
                          seconds / 1e6, 6)
+        # A stopped service or cursor movement resets the stall clock.
+        if (active == "active" and previous_active == "active"
+                and state["chunks"] == previous_cursor):
+            last_progress = float(previous.get("last_progress_unix", now))
+            if not 0 <= now - last_progress <= 86400:
+                last_progress = now
+            seconds_since_progress = round(now - last_progress)
+    temperature = cpu_temperature_c()
+    flags = pi_throttle_flags()
+    bits = int(flags, 16) if flags is not None else None
     return {
         "timestamp_utc": datetime.fromtimestamp(now, timezone.utc).isoformat(),
         "unix_time": now,
-        "active_state": systemd_active(),
+        "active_state": active,
         "completed_chunks": state["chunks"],
         "completed_keys": str(state["chunks"] * CHUNK),
         "inflight": state["inflight"] is not None,
         "recovery_restarts": state["reissued"],
         "found": bool(state["found"]),
-        "observed_mkeys_per_second": rate
+        "observed_mkeys_per_second": rate,
+        "last_progress_unix": last_progress,
+        "seconds_since_progress": seconds_since_progress,
+        "stall_suspected": active == "active" and seconds_since_progress >= 900,
+        "cpu_temperature_c": temperature,
+        "pi_throttle_flags": flags,
+        "pi_throttling_now": bool(bits & 0xF) if bits is not None else None,
+        "pi_throttling_seen": bool(bits & 0xF0000) if bits is not None else None,
     }
-
 
 def write_atomic(data):
     HEALTH.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
