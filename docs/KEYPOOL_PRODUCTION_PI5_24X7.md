@@ -1,8 +1,8 @@
 # Pi 5 Keypool Puzzle 71: controlled 24/7 deployment
 
-This is a production **proposal**. The GitHub PR itself must not activate
-anything. Preserve Bitcoin Core and ckpool services that feed the NerdQaxe:
-**no changes to the BTC node, ckpool, ports or network configuration**.
+This is a controlled Keypool deployment. Merging a GitHub PR does not
+activate the service; deployment and enablement are explicit host actions.
+The service only manages Keypool processes and its own state.
 
 ## Selection and invariants
 
@@ -28,9 +28,9 @@ anything. Preserve Bitcoin Core and ckpool services that feed the NerdQaxe:
 - `flock` in the existing Keypool controller prevents two
   controllers owning this campaign. Do not run another unmanaged
   `keypoold.py run` concurrently.
-- CPU limited to **150% total by default** (adjustable from 50–200% at install), `Nice=10`, with Bitcoin Core and
-  ckpool left running. `Restart=on-failure`, not `Restart=always`,
-  so a successful verified hit stops without a busy restart loop.
+- CPU limited to **150% total by default** (adjustable from 50–200%
+  at installation), `Nice=10`, `Restart=on-failure` so a verified hit
+  stops without a busy restart loop.
 - systemd uses `KillMode=mixed`: SIGTERM goes to the Python
   controller **before** the C++ worker. The controller stops dispatch,
   drains already-sent jobs, and commits the cursor while the child remains
@@ -38,17 +38,17 @@ anything. Preserve Bitcoin Core and ckpool services that feed the NerdQaxe:
   remaining cgroup if draining hangs. A forced stop or power loss can replay
   at most the bounded uncommitted window; already committed chunks remain
   durable.
-- Physical stop regression, 22 October 2026: initial 90-second smoke reached
-  cursor 770 from 520 at 150% total CPU (52.35 C, throttled=0), but the
-  prior `KillMode=control-group` terminated the child and left
-  `inflight=770`. The next safe startup is expected to reissue unfinished
-  work; **never edit SQLite manually**. Re-test controlled stop with this
+- Physical stop regression, 22 October 2026: the first version used
+  `KillMode=control-group` and interrupted an uncommitted job. After
+  switching to `KillMode=mixed`, the physical restart and graceful stop
+  both passed: `next_i=871`, `inflight=NULL`, `Result=success`.
+  Do not edit campaign SQLite manually. Re-test controlled stop with this
   corrected unit before enabling persistent operation.
 
 ## Deployment (only after PR reviewed and merged)
 
-Use the normal Pi5 login `pi5claw`, **not root**, and a dedicated
-clean production worktree:
+Run under the same unprivileged account that owns the existing
+campaign SQLite database. Use a dedicated clean production worktree:
 
 ```bash
 BASE="$HOME/BITCOIN_ANALYSIS/bitcoin-puzzle"
@@ -62,7 +62,7 @@ python3 pool/keypoold.py status
 # Build and validate approved binaries, verify existing campaign,
 # stage immutable SHA256-manifested release; install DISABLED units:
 python3 production/install_keypool.py
-# Optional when the BTC node needs more headroom: --cpu-quota 125
+# Optional: reduce total CPU quota with --cpu-quota 125
 ```
 
 If `keyhunt-prod` already exists, **do not delete or reset it**.
@@ -103,13 +103,12 @@ systemctl --user stop keypool-hunt.service
 python3 pool/keypoold.py status
 ```
 
-Once this smoke and the miner's BTC/ckpool performance are acceptable,
-**explicitly authorize boot persistence**:
+After successful manual verification, explicitly enable boot persistence:
 
 ```bash
-# Needed only once on Pi OS if user systemd should survive logout/reboot.
-# Requires sudo: this is NOT invoked by the installer.
-sudo loginctl enable-linger pi5claw
+# Optional if systemd user services must survive logout or a reboot.
+# Replace $(id -un) with the intended unprivileged service account.
+sudo loginctl enable-linger "$(id -un)"
 
 systemctl --user enable --now keypool-hunt.service
 systemctl --user enable --now keypool-health.timer
@@ -166,10 +165,9 @@ Never upload or publicly paste `FOUND.private`.
 The 21 October final used four balanced rounds at `CPUQuota=150%`.
 R7-FOLD averaged **2.891 M completed Puzzle71 candidates/second**
 (against 2.897 M for R7-PAIR and 2.876 M for R3-SCHED).
-This rate is workload-dependent: Bitcoin Core initial catch-up may
-temporarily use significant CPU; 24/7 monitoring should check that
-both the BTC node and Keypool remain healthy, not merely that the
-worker reports a large throughput value.
+Throughput varies with concurrent system load and CPU scheduling.
+Monitoring should distinguish validated SQLite progress from raw
+worker throughput counters.
 
 There is no predictable near-term discovery time for Puzzle71 at this
 rate. The goal of this PR is to deliver **real durable coverage,
