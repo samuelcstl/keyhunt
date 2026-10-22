@@ -75,7 +75,10 @@ def main():
             print("PASS: SIGTERM parent-only drains outstanding worker jobs")
             # A clean next run must continue with the original cursor.
             old_i = state["next_i"]
-            pool.run(db, worker, max_jobs=2, timeout=10)
+            restart = subprocess.run(command + ["--max-jobs", "2"],
+                                     env=env, capture_output=True,
+                                     text=True, timeout=15, check=False)
+            assert restart.returncode == 0, (restart.stdout, restart.stderr)
             with pool.connect(db) as conn:
                 resumed = pool.load(conn)
             assert resumed["next_i"] == old_i + 2, resumed
