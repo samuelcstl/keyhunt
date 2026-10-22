@@ -126,6 +126,12 @@ def main():
         check_template = invoke(ROOT / "production/install_keypool.py",
                                 "--validate-template")
         assert check_template.returncode == 0, check_template.stderr
+        check_custom = invoke(ROOT / "production/install_keypool.py",
+                              "--validate-template", "--cpu-quota", "125")
+        assert check_custom.returncode == 0, check_custom.stderr
+        reject_unbounded = invoke(ROOT / "production/install_keypool.py",
+                                  "--validate-template", "--cpu-quota", "250")
+        assert reject_unbounded.returncode != 0
         assert campaign.is_file()
         print("PASS: SQLite read-only preflight, tamper stop, hit stop, missing DB stop, redacted monitor, unit template")
 
