@@ -136,6 +136,16 @@ silently interpreted as healthy. It **never reports the secret scalar or
 campaign seed**. The first snapshot has no throughput baseline.
 The health timer records status locally; it does not send push alerts.
 
+## Status and off-device backups
+
+The controller already supports `python3 ~/.local/share/keypool/current/keypoold.py status`,
+and the existing health snapshot can be queried independently with
+`python3 ~/.local/share/keypool/current/keypool_health.py`.
+
+For hourly SQLite snapshots to a user-selected, existing rclone mount,
+see [Keypool monitoring and backup](KEYPOOL_BACKUP_AND_MONITORING.md).
+This is installed separately and does not redeploy the running hunter.
+
 ## Stop, rollback, recovery
 
 ```bash
