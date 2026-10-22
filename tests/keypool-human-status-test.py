@@ -1,7 +1,13 @@
 #!/usr/bin/env python3
 """Human-readable Keypool metrics: formatting, milestones and no false coverage."""
 import importlib.util
+import contextlib
+import io
+import json
 from pathlib import Path
+import sys
+import tempfile
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location(
@@ -69,6 +75,38 @@ def main():
     assert "100 %" in complete and "Taux global" not in complete
     assert "min" in complete
     print("PASS: 100% upper boundary without overflow")
+
+    # Regression: render tests alone cannot detect omitted controller args.
+    # Real CLI subprocess calls must invoke 'keypoold.py status', while the
+    # separate health collector accepts no positional command.
+    with tempfile.TemporaryDirectory(prefix="keypool-cli-contract-") as td:
+        release = Path(td)
+        status_json = json.dumps(sample(keys, chunks))
+        health_json = json.dumps(health)
+        (release / "keypoold.py").write_text(
+            "import sys\n"
+            "if sys.argv[1:] != ['status']: sys.exit(7)\n"
+            f"print({status_json!r})\n",
+            encoding="utf-8")
+        (release / "keypool_health.py").write_text(
+            "import sys\n"
+            "if sys.argv[1:]: sys.exit(8)\n"
+            f"print({health_json!r})\n",
+            encoding="utf-8")
+        with mock.patch.object(cli, "RELEASE", release):
+            for args, expected in (
+                (["keypool"], "KEYPOOL · PUZZLE #71"),
+                (["keypool", "health"], "DÉTAILS"),
+                (["keypool", "--json"], '"completed_chunks": 70008'),
+                (["keypool", "health", "--json"], '"cpu_temperature_c": 54.0'),
+            ):
+                capture = io.StringIO()
+                with mock.patch.object(sys, "argv", args), contextlib.redirect_stdout(capture):
+                    code = cli.main()
+                assert code == 0, (args, capture.getvalue())
+                assert expected in capture.getvalue(), (args, capture.getvalue())
+    print("PASS: actual CLI calls include mandatory controller status subcommand")
+
 
 
 if __name__ == "__main__":

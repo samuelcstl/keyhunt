@@ -20,10 +20,10 @@ CHUNK = 1 << 20
 SIZE = 1 << 70
 
 
-def command_json(file):
+def command_json(file, *arguments):
     if not file.is_file():
         raise RuntimeError("Keypool release missing: " + str(file))
-    proc = subprocess.run([sys.executable, str(file)], capture_output=True,
+    proc = subprocess.run([sys.executable, str(file), *arguments], capture_output=True,
                           text=True, check=False, timeout=20)
     if proc.returncode:
         raise RuntimeError(proc.stderr.strip() or proc.stdout.strip()
@@ -169,7 +169,7 @@ def main():
                                 "-u", "keypool-hunt.service", "-n", "40",
                                 "--no-pager"])
     try:
-        status = command_json(RELEASE / "keypoold.py") if (
+        status = command_json(RELEASE / "keypoold.py", "status") if (
             not args.json or args.command == "status") else None
         health = command_json(RELEASE / "keypool_health.py") if (
             not args.json or args.command == "health") else None
