@@ -28,7 +28,7 @@ anything. Preserve Bitcoin Core and ckpool services that feed the NerdQaxe:
 - `flock` in the existing Keypool controller prevents two
   controllers owning this campaign. Do not run another unmanaged
   `keypoold.py run` concurrently.
-- CPU limited to **150% total**, `Nice=10`, with Bitcoin Core and
+- CPU limited to **150% total by default** (adjustable from 50–200% at install), `Nice=10`, with Bitcoin Core and
   ckpool left running. `Restart=on-failure`, not `Restart=always`,
   so a successful verified hit stops without a busy restart loop.
 - Controller responds to SIGTERM, drains outstanding work and commits
@@ -53,6 +53,7 @@ python3 pool/keypoold.py status
 # Build and validate approved binaries, verify existing campaign,
 # stage immutable SHA256-manifested release; install DISABLED units:
 python3 production/install_keypool.py
+# Optional when the BTC node needs more headroom: --cpu-quota 125
 ```
 
 If `keyhunt-prod` already exists, **do not delete or reset it**.
@@ -119,7 +120,12 @@ The health snapshot is written every five minutes to owner-only
 `~/.local/state/keypool/health.json`. It reports controller service
 state, completed chunks/keys, restart counter, in-flight flag, whether
 a verified hit has been recorded, and observed keys/s since the last
-sample. It **never reports the secret scalar or campaign seed**.
+sample, Pi CPU temperature where available, Raspberry Pi under-voltage/throttling
+flags where `vcgencmd` exists, and the number of seconds since the cursor
+last advanced. A stalled running service is flagged after 15 minutes
+(`stall_suspected=true`); a missing sensor is reported as `null`, not
+silently interpreted as healthy. It **never reports the secret scalar or
+campaign seed**. The first snapshot has no throughput baseline.
 The health timer records status locally; it does not send push alerts.
 
 ## Stop, rollback, recovery
@@ -128,6 +134,11 @@ The health timer records status locally; it does not send push alerts.
 systemctl --user disable --now keypool-hunt.service keypool-health.timer
 python3 pool/keypoold.py status
 ```
+
+To change the 150% total CPU quota, stop and disable the service,
+then reinstall with e.g. `python3 production/install_keypool.py
+--cpu-quota 125`; the installer validates the allowed 50–200% range.
+All three worker binaries remain separately SHA256-pinned.
 
 To select R7-PAIR or fall back to R3, stop and disable the service
 first, then run `python3 production/install_keypool.py --worker
