@@ -18,9 +18,9 @@
   Stat-only comparisons show unchanged size 8192 bytes and
   mtime 1791918358370048515 ns before/after. This is not a proof
   against concurrent external access.
-- Bitcoind and ckpool stayed up; Bitcoin Core was using noticeable
-  CPU initially and less at the end. Several other background
-  services (Grafana, InfluxDB, Tailscale) also present.
+- The host was running concurrent workloads during testing. Their CPU
+  demand varied across rounds, so small throughput differences may
+  reflect normal scheduling noise.
 - Each measured observation completed 96 × 2^20 = 100,663,296
   distinct Puzzle71 candidate scalars in a fresh SQLite. Each variant
   revisited the **same synthetic subset**, so these results must not
