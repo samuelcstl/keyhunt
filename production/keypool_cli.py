@@ -54,7 +54,8 @@ def percent_text(keys, size):
     if pct == 0:
         return "0 %"
     decimals = max(2, min(17, 2 - math.floor(math.log10(pct))))
-    return f"{pct:.{decimals}f}".replace(".", ",") + " %"
+    number = f"{pct:.{decimals}f}".rstrip("0").rstrip(".")
+    return number.replace(".", ",") + " %"
 
 
 def duration(seconds):
