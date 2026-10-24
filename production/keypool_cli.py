@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""Readable, read-only Keypool status. Independent of the installed release.
+"""Keypool operator CLI: read-only status and explicit user-systemd control.
 
 Commands:
     keypool             human-readable progress and health
     keypool health      same summary plus technical health details
     keypool logs        recent systemd logs
+    keypool start       start service and enable boot autostart
+    keypool stop        gracefully stop service and disable boot autostart
     keypool --json      original machine-readable campaign JSON
     keypool health --json  original health JSON
 """
@@ -16,6 +18,7 @@ import subprocess
 import sys
 
 RELEASE = Path.home() / ".local/share/keypool/current"
+SERVICE = "keypool-hunt.service"
 CHUNK = 1 << 20
 SIZE = 1 << 70
 
@@ -29,6 +32,50 @@ def command_json(file, *arguments):
         raise RuntimeError(proc.stderr.strip() or proc.stdout.strip()
                            or "Keypool command failed")
     return json.loads(proc.stdout)
+
+
+def service_control(action):
+    """Change only the Keypool hunt service; never touch campaign SQLite.
+
+    start enables persistence across reboot. stop prevents automatic restart.
+    systemd's KillMode=mixed is responsible for graceful stop and checkpoint.
+    """
+    if action not in ("start", "stop"):
+        raise ValueError("Unsupported Keypool service action")
+    verb = "enable" if action == "start" else "disable"
+    result = subprocess.run(
+        ["systemctl", "--user", verb, "--now", SERVICE],
+        capture_output=True, text=True, check=False, timeout=180,
+    )
+    if result.returncode:
+        raise RuntimeError(
+            (result.stderr or result.stdout).strip() or
+            f"systemctl {verb} --now failed"
+        )
+
+    check = subprocess.run(
+        ["systemctl", "--user", "show", SERVICE,
+         "--property=ActiveState", "--value"],
+        capture_output=True, text=True, check=False, timeout=15,
+    )
+    if check.returncode:
+        raise RuntimeError(
+            (check.stderr or check.stdout).strip() or
+            "Cannot verify Keypool service state"
+        )
+    state = check.stdout.strip()
+    expected = "active" if action == "start" else "inactive"
+    if state != expected:
+        raise RuntimeError(
+            f"Unexpected Keypool state after {action}: {state or 'unknown'} "
+            f"(expected {expected}); inspect 'keypool logs'"
+        )
+    print(
+        "Keypool démarré. Démarrage automatique activé."
+        if action == "start"
+        else "Keypool arrêté. Démarrage automatique désactivé."
+    )
+    return 0
 
 
 def fmt_float(number, places=2):
@@ -157,18 +204,20 @@ def render_progress(status, health, verbose=False):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", nargs="?", choices=("status", "health", "logs"),
+    parser.add_argument("command", nargs="?",
+                        choices=("status", "health", "logs", "start", "stop"),
                         default="status")
     parser.add_argument("--json", action="store_true",
                         help="Afficher le JSON original sans mise en forme")
     args = parser.parse_args()
+    if args.command in ("start", "stop", "logs") and args.json:
+        parser.error("--json est réservé à status et health")
     if args.command == "logs":
-        if args.json:
-            parser.error("--json n'est pas disponible pour logs")
         return subprocess.call(["journalctl", "--user",
-                                "-u", "keypool-hunt.service", "-n", "40",
-                                "--no-pager"])
+                                "-u", SERVICE, "-n", "40", "--no-pager"])
     try:
+        if args.command in ("start", "stop"):
+            return service_control(args.command)
         status = command_json(RELEASE / "keypoold.py", "status") if (
             not args.json or args.command == "status") else None
         health = command_json(RELEASE / "keypool_health.py") if (
