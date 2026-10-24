@@ -347,6 +347,22 @@ def run(db: Path, worker: Path, max_jobs: int, timeout: int,
                     next_inflight = (next_i if (next_i < limit and kind != "hit"
                                                 and (not SHUTDOWN or pending))
                                      else None)
+                    if kind == "hit":
+                        # Create the extra table only on a verified win: no
+                        # migration or mutation of the running campaign schema.
+                        # The key and found=1 are committed atomically below.
+                        c.execute("BEGIN IMMEDIATE")
+                        c.execute("""CREATE TABLE IF NOT EXISTS verified_hit(
+                            campaign_id INTEGER PRIMARY KEY CHECK(campaign_id=1),
+                            private_key_hex TEXT NOT NULL,
+                            job_index INTEGER NOT NULL,
+                            verified_at_utc TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                        )""")
+                        c.execute(
+                            "INSERT INTO verified_hit(campaign_id,private_key_hex,job_index) "
+                            "VALUES (1,?,?)",
+                            (f"0x{int(secret, 16):064x}", i),
+                        )
                     updated = c.execute(
                         "UPDATE campaign SET next_i=?, inflight=?, found=? "
                         "WHERE id=1 AND next_i=? AND inflight=?",
