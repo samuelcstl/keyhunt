@@ -100,6 +100,13 @@ def main():
                 assert state["inflight"] is None
                 assert state["reissued"] == 1
                 assert state["found"] == 1
+                key_row = conn.execute(
+                    "SELECT private_key_hex,job_index FROM verified_hit "
+                    "WHERE campaign_id=1"
+                ).fetchone()
+                assert key_row is not None
+                assert int(key_row[0], 16) == KEY and key_row[1] == 63
+                assert pool.verify_hit(key_row[0], pool.FIXTURE_TARGET)
         finally:
             for name, previous in original_environment.items():
                 if previous is None:
@@ -195,6 +202,12 @@ def main():
                 state=pool.load(conn)
                 assert state["next_i"] == 64 and state["inflight"] is None
                 assert state["reissued"] == 1 and state["found"] == 1
+                key_row = conn.execute(
+                    "SELECT private_key_hex,job_index FROM verified_hit "
+                    "WHERE campaign_id=1"
+                ).fetchone()
+                assert key_row is not None
+                assert int(key_row[0], 16) == KEY and key_row[1] == 63
         finally:
             if before_trace is None:
                 os.environ.pop("KEYHUNT_WORKER_COVERAGE", None)
