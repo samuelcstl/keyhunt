@@ -20,10 +20,10 @@ minutes when enabled.
 
 ## Readable one-command status
 
-An optional standalone CLI formats the same read-only progress and health
-snapshots in human units. It lives in ~/.local/bin and follows the existing
-~/.local/share/keypool/current symlink; **installing it does not touch or
-restart the running hunter**.
+The standalone CLI displays progress and health and provides explicit
+start/stop control through the existing systemd user unit. It lives in
+~/.local/bin and follows the existing ~/.local/share/keypool/current symlink.
+**Installing the CLI does not touch or restart the running hunter.**
 
 From the updated repository checkout:
 
@@ -36,8 +36,21 @@ Available commands:
     keypool status           # same readable summary
     keypool health           # summary + inflight, recovery and stall details
     keypool logs             # last 40 systemd journal entries
+    keypool start            # start service and enable at boot
+    keypool stop             # graceful stop and disable at boot
     keypool --json           # original campaign JSON for scripts
     keypool health --json    # original health JSON for scripts
+
+The `start` command runs `systemctl --user enable --now keypool-hunt.service`;
+`stop` runs `systemctl --user disable --now keypool-hunt.service`. The
+CLI verifies the resulting systemd active state and returns a nonzero exit
+code on failures. Only the hunt unit is changed; the health and off-device
+backup timers are independent. The existing service uses `KillMode=mixed`
+for a controlled stop and replays unfinished jobs on the next start.
+These commands do **not** create, migrate, reset or rewrite SQLite directly.
+The service preflight still refuses startup when a verified hit already exists
+or campaign/release validation fails. `--json` is available for status/health
+only.
 
 The progress bar deliberately describes the **next key-count milestone**
 (100 billion, then one trillion, etc.), not total keyspace coverage.
