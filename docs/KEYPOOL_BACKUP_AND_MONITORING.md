@@ -102,10 +102,36 @@ Disable automatic backups with:
 
     systemctl --user disable --now keypool-backup.timer
 
+## Verified-win persistence (no live database migration)
+
+A correctly verified win is saved to `FOUND.private` and to the same SQLite
+campaign file. On the first verified win only, the controller creates a
+`verified_hit` table and atomically commits the private key
+(`private_key_hex`), completed job ordinal (`job_index`), and
+`campaign.found=1` with the progress cursor. A crash before that
+transaction commits leaves the job uncommitted and therefore replayable.
+
+**Existing Puzzle 71 campaigns need no schema migration.** The controller
+does not alter their tables, scheduling seed, chunk order, or cursor before a
+verified hit. Keep the normal `keypool` and `keypool --json` status output
+free of secrets. The `verified_hit` row itself contains a secret; avoid
+printing it in a terminal, chat, or CI log.
+
+An SQLite snapshot made *after* the verified-hit transaction includes the
+winning key. An earlier snapshot can only resume its recorded progress; it
+cannot prove the win occurred later. Existing periodic off-device backups
+do not guarantee an immediate post-win copy.
+
+**Security warning:** off-device SQLite backups can now contain a spendable
+Bitcoin private key. Use a separately encrypted storage destination (e.g.
+rclone crypt), protect the backup directory and retention copies, and never
+upload database snapshots to public repositories or paste their contents.
+
 ## Notes and limitations
 
-- The SQLite campaign includes a private scheduling seed; protect access to
-  backups. The separate FOUND.private key file is NOT part of this backup.
+- Protect all SQLite backups. Prior to a win they contain the private
+  scheduling seed; after a win they also include the winning private key.
+  The separate FOUND.private file is NOT part of this backup.
 - rclone mounts can cache successful writes locally. A readable backup and
   matching SHA256 on the mount do NOT prove Google Drive has completed its
   remote upload. For strict durability, verify the corresponding object using

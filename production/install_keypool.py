@@ -142,6 +142,17 @@ def install(selected, cpu_quota=150):
     assert_user_service_inactive()
     if not DB.is_file():
         raise RuntimeError("Existing production campaign DB missing; deployment never initializes DB")
+    # Validate verified-hit atomicity and SQLite-backup recovery in a
+    # separate, disposable solved-Puzzle-20 campaign before installation.
+    hit_test = command(
+        [sys.executable, str(ROOT / "tests/keypool-hit-storage-test.py")],
+        check=False,
+    )
+    if hit_test.returncode:
+        raise RuntimeError(
+            "Verified-hit SQLite test failed: " +
+            (hit_test.stdout + hit_test.stderr)[-1800:]
+        )
     # Build/test before touching the installation.
     build_workers()
     manifest = {
